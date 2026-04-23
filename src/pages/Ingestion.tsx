@@ -8,6 +8,7 @@ import {
 import { resolveOrCreateIngredient } from '../data/ingredientResolver'
 import { seedRecipeNutrition } from '../engine/nutrition'
 import Button from '../components/ui/Button'
+import SAMPLE_RECIPES_RAW from '../data/sampleRecipes.json'
 
 interface ImportedIngredient {
   raw_text?: string
@@ -290,6 +291,9 @@ function SeedTab() {
   } | null>(null)
   const [loading, setLoading] = useState(false)
 
+  const [recipeStatus, setRecipeStatus] = useState<{ imported: number; skipped: number } | null>(null)
+  const [recipeLoading, setRecipeLoading] = useState(false)
+
   async function doSeed() {
     setLoading(true)
     try {
@@ -305,35 +309,63 @@ function SeedTab() {
     }
   }
 
+  async function doSeedRecipes() {
+    setRecipeLoading(true)
+    try {
+      const result = await importRecipes(SAMPLE_RECIPES_RAW as ImportedRecipe[])
+      await seedRecipeNutrition(result.recipeIds)
+      setRecipeStatus({ imported: result.imported, skipped: result.skipped })
+    } finally {
+      setRecipeLoading(false)
+    }
+  }
+
   return (
-    <div className="space-y-4">
-      <p className="text-sm text-gray-600">
-        Load the ingredient library into the database. This pre-populates common ingredients with canonical names,
-        normalized forms, ingredient families, shopping categories, and MISKG links for nutrition and substitutions.
-      </p>
-      <p className="text-sm text-gray-600">
-        The recommendation engine uses overlap at four levels:
-      </p>
-      <ul className="text-sm text-gray-600 list-disc pl-5 space-y-1">
-        <li><strong>Exact</strong> - same ingredient in both recipes.</li>
-        <li><strong>Normalized</strong> - different form of the same base ingredient.</li>
-        <li><strong>Substitution</strong> - interchangeable according to MISKG.</li>
-        <li><strong>Family</strong> - related ingredient family with weaker reuse value.</li>
-      </ul>
-      <p className="text-sm text-gray-500">
-        Seeding is idempotent. Existing ingredients and similarities are skipped automatically.
-      </p>
-      <Button onClick={doSeed} disabled={loading}>
-        {loading ? 'Seeding...' : 'Seed DB'}
-      </Button>
-      {status && (
-        <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
-          <p className="text-sm text-blue-800">
-            Added <strong>{status.ingredientAdded}</strong> ingredients, skipped <strong>{status.ingredientSkipped}</strong>, and added{' '}
-            <strong>{status.similaritiesAdded}</strong> substitution similarities.
-          </p>
-        </div>
-      )}
+    <div className="space-y-6">
+      <div className="space-y-4">
+        <p className="text-sm font-medium text-gray-800">Ingredient library</p>
+        <p className="text-sm text-gray-600">
+          Load the ingredient library into the database. This pre-populates common ingredients with canonical names,
+          normalized forms, ingredient families, shopping categories, and MISKG links for nutrition and substitutions.
+        </p>
+        <ul className="text-sm text-gray-600 list-disc pl-5 space-y-1">
+          <li><strong>Exact</strong> - same ingredient in both recipes.</li>
+          <li><strong>Normalized</strong> - different form of the same base ingredient.</li>
+          <li><strong>Substitution</strong> - interchangeable according to MISKG.</li>
+          <li><strong>Family</strong> - related ingredient family with weaker reuse value.</li>
+        </ul>
+        <p className="text-sm text-gray-500">
+          Seeding is idempotent. Existing ingredients and similarities are skipped automatically.
+        </p>
+        <Button onClick={doSeed} disabled={loading}>
+          {loading ? 'Seeding...' : 'Seed ingredient library'}
+        </Button>
+        {status && (
+          <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
+            <p className="text-sm text-blue-800">
+              Added <strong>{status.ingredientAdded}</strong> ingredients, skipped <strong>{status.ingredientSkipped}</strong>, and added{' '}
+              <strong>{status.similaritiesAdded}</strong> substitution similarities.
+            </p>
+          </div>
+        )}
+      </div>
+
+      <div className="border-t border-gray-200 pt-5 space-y-4">
+        <p className="text-sm font-medium text-gray-800">Sample recipes</p>
+        <p className="text-sm text-gray-600">
+          Load {SAMPLE_RECIPES_RAW.length} sample recipes into your library. Recipes already present (same title) are skipped.
+        </p>
+        <Button variant="secondary" onClick={doSeedRecipes} disabled={recipeLoading}>
+          {recipeLoading ? 'Importing...' : `Seed ${SAMPLE_RECIPES_RAW.length} sample recipes`}
+        </Button>
+        {recipeStatus && (
+          <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
+            <p className="text-sm text-blue-800">
+              Imported <strong>{recipeStatus.imported}</strong> recipes, skipped <strong>{recipeStatus.skipped}</strong> as duplicates.
+            </p>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

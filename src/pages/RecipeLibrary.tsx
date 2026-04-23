@@ -1,9 +1,10 @@
-import { useState, useEffect, useId } from 'react'
+import { useState, useEffect, useId, useMemo } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../db/db'
 import type { Recipe, RecipeStatus, RecipeNutrition } from '../db/types'
 import { resolveOrCreateIngredient, normalizeIngredientName } from '../data/ingredientResolver'
 import { seedRecipeNutrition } from '../engine/nutrition'
+import { INGREDIENT_LIBRARY } from '../data/ingredientLibrary'
 import Modal from '../components/ui/Modal'
 import Badge from '../components/ui/Badge'
 import Button from '../components/ui/Button'
@@ -200,11 +201,31 @@ function RecipeForm({ recipe, onSaved, onCancel }: RecipeFormProps) {
     }
   }
 
+  const libraryMap = useMemo(
+    () => new Map(INGREDIENT_LIBRARY.map(ing => [ing.canonical_name, ing])),
+    [],
+  )
+
+  function handleIngredientNameChange(index: number, name: string) {
+    const match = libraryMap.get(name)
+    setRow(index, {
+      ingredient_name: name,
+      ...(match && !rows[index].category ? { category: match.category } : {}),
+      ...(match?.default_unit && !rows[index].unit ? { unit: match.default_unit } : {}),
+    })
+  }
+
   const labelCls = 'block text-xs font-medium text-gray-700 mb-1'
   const inputCls = 'w-full border border-gray-300 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500'
+  const ingListId = `${uid}-ingredient-names`
 
   return (
     <div className="space-y-4">
+      <datalist id={ingListId}>
+        {INGREDIENT_LIBRARY.map(ing => (
+          <option key={ing.canonical_name} value={ing.canonical_name} />
+        ))}
+      </datalist>
       {error && <p className="text-sm text-red-600 bg-red-50 rounded p-2">{error}</p>}
 
       <div className="grid grid-cols-2 gap-3">
@@ -262,7 +283,7 @@ function RecipeForm({ recipe, onSaved, onCancel }: RecipeFormProps) {
               <input className={`${inputCls} col-span-4`} placeholder="2 cups flour" value={row.raw_text} onChange={event => setRow(index, { raw_text: event.target.value })} />
               <input className={`${inputCls} col-span-2`} placeholder="2" type="number" min={0} step="any" value={row.quantity} onChange={event => setRow(index, { quantity: event.target.value })} />
               <input className={`${inputCls} col-span-2`} placeholder="cups" value={row.unit} onChange={event => setRow(index, { unit: event.target.value })} />
-              <input className={`${inputCls} col-span-2`} placeholder="flour" value={row.ingredient_name} onChange={event => setRow(index, { ingredient_name: event.target.value })} />
+              <input className={`${inputCls} col-span-2`} placeholder="flour" list={ingListId} value={row.ingredient_name} onChange={event => handleIngredientNameChange(index, event.target.value)} />
               <input className={`${inputCls} col-span-1`} placeholder="grain" value={row.category} onChange={event => setRow(index, { category: event.target.value })} />
               <button className="col-span-1 text-gray-400 hover:text-red-500 text-sm font-bold" onClick={() => removeRow(index)}>x</button>
             </div>
