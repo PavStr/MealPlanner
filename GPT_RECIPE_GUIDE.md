@@ -400,6 +400,9 @@ Use these names for `ingredient_name`. They are the exact forms the recommendati
 - `whole grain mustard`
 - `tahini`
 - `harissa`
+- `green curry paste`
+- `red curry paste`
+- `yellow curry paste`
 
 **Wine for cooking**
 - `red wine`

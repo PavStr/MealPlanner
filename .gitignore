@@ -3,3 +3,6 @@ dist
 .env
 *.local
 .claude
+tmp/
+*.recipes.json
+scan-*.json

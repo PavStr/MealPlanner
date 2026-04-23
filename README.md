@@ -147,8 +147,8 @@ Scores every active recipe not in the current selection on three dimensions:
 | Dimension | Weight | Detail |
 |---|---|---|
 | Ingredient reuse | 60 % | Rewards overlap at exact, normalised, and family level; penalises new ingredient types |
-| Cost | 15 % | Placeholder — Phase 2 |
-| Nutrition | 25 % | Placeholder — Phase 2 |
+| Cost | 15 % | Placeholder — not yet implemented |
+| Nutrition | 25 % | Calories, protein, fat, carbs, fibre from MISKG/Edamam data — rewards recipes that complement the nutritional profile of the anchors |
 
 ### Ingredient similarity levels
 
@@ -166,19 +166,20 @@ Weights are defined in `src/data/ingredientLibrary.ts → SIMILARITY_WEIGHTS` an
 
 The ingredient library links each ingredient to the [MISKG dataset](https://github.com/kanak8278/MISKG) via a `miskg_id` field stored in IndexedDB.
 
-### What's active now
+### What's active
 
-**Substitution pairs** — pre-filtered from MISKG's `substitution_pairs.json` to the ~170 seeded ingredients (1 515 unique pairs). Used at runtime in Plan Summary to generate consolidation suggestions. No external requests — the pairs are baked into `src/data/substitutionPairs.ts` at build time.
+**Substitution pairs** — pre-filtered from MISKG's `substitution_pairs.json` to the ~170 seeded ingredients (1 515 unique pairs). Used at runtime in Plan Summary to generate consolidation suggestions. Baked into `src/data/substitutionPairs.ts` at build time — no external requests.
 
-### What's ready to wire up (Phase 2)
+**Nutrition scoring** — calorie, protein, fat, carbs, and fibre values extracted from `edamam.json` and baked into `src/data/nutritionData.ts` (covers 142 of the ~170 seeded ingredients). The `engine/nutrition.ts` module converts recipe ingredients to per-recipe totals and produces a score that feeds the 25 % nutrition weight in recommendations.
+
+### What's ready to wire up (future)
 
 | MISKG file | Powers |
 |---|---|
-| `src/data/DB/edamam.json` | Calories, protein, fat, carbs per ingredient → fills `RecipeNutrition` table → activates the 25 % nutrition score in recommendations |
-| `src/data/DB/ingredient_to_flavordb.json` | Flavour-pairing hints — surface in Plan Builder alongside ingredient overlap |
-| `src/data/DB/conceptnet.json` | Semantic ingredient relationships — can improve family-level matching |
+| `src/data/DB/ingredient_to_flavordb.json` | Flavour-pairing hints — could surface in Plan Builder alongside ingredient overlap |
+| `src/data/DB/conceptnet.json` | Semantic ingredient relationships — could improve family-level matching |
 
-The `RecipeNutrition` and `RecipeCost` tables already exist in the DB schema, waiting for data.
+The `RecipeCost` table already exists in the DB schema, waiting for data.
 
 ---
 
@@ -200,9 +201,11 @@ src/
   engine/
     recommender.ts        — Three-level weighted recommendation scoring
     shoppingList.ts       — Shopping list, prep plan, consolidation suggestions
+    nutrition.ts          — Per-recipe nutrition totals and recommendation score
   data/
     ingredientLibrary.ts  — ~170 English ingredients with families, MISKG IDs, seeder
     substitutionPairs.ts  — 1 515 pre-filtered MISKG substitution pairs (build-time)
+    nutritionData.ts      — Per-ingredient kcal/protein/fat/carbs/fibre from edamam (142 ingredients)
     DB/                   — Raw MISKG dataset files (not bundled)
   components/
     layout/               — Sidebar, Layout wrapper
