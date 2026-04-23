@@ -281,6 +281,7 @@ export default function PlanSummary() {
   const [shoppingList, setShoppingList] = useState<ShoppingList>({ byCategory: {}, categories: [] })
   const [prepTasks, setPrepTasks] = useState<PrepTask[]>([])
   const [consolidations, setConsolidations] = useState<ConsolidationSuggestion[]>([])
+  const [loadError, setLoadError] = useState('')
   const [tab, setTab] = useState<'overview' | 'shopping' | 'prep'>('overview')
 
   useEffect(() => {
@@ -297,6 +298,7 @@ export default function PlanSummary() {
       setShoppingList({ byCategory: {}, categories: [] })
       setPrepTasks([])
       setConsolidations([])
+      setLoadError('')
       return
     }
 
@@ -305,20 +307,24 @@ export default function PlanSummary() {
       .filter(planRecipe => planRecipe.role === 'anchor' || planRecipe.role === 'final')
       .map(planRecipe => planRecipe.recipe_id)
 
-    Promise.all([
+    Promise.allSettled([
       db.recipes.bulkGet(recipeIds),
       generateShoppingList(includedIds),
       generatePrepPlan(includedIds),
       generateConsolidationSuggestions(includedIds),
-    ]).then(([loadedRecipes, list, tasks, swaps]) => {
-      const recipeMap = new Map<number, Recipe>()
-      loadedRecipes.forEach(recipe => {
-        if (recipe?.recipe_id) recipeMap.set(recipe.recipe_id, recipe)
-      })
-      setRecipes(recipeMap)
-      setShoppingList(list)
-      setPrepTasks(tasks)
-      setConsolidations(swaps)
+    ]).then(([recipesResult, listResult, tasksResult, swapsResult]) => {
+      if (recipesResult.status === 'fulfilled') {
+        const recipeMap = new Map<number, Recipe>()
+        recipesResult.value.forEach(recipe => {
+          if (recipe?.recipe_id) recipeMap.set(recipe.recipe_id, recipe)
+        })
+        setRecipes(recipeMap)
+      } else {
+        setLoadError(`Could not load recipes: ${recipesResult.reason}`)
+      }
+      if (listResult.status === 'fulfilled') setShoppingList(listResult.value)
+      if (tasksResult.status === 'fulfilled') setPrepTasks(tasksResult.value)
+      if (swapsResult.status === 'fulfilled') setConsolidations(swapsResult.value)
     })
   }, [planRecipes])
 
@@ -400,6 +406,10 @@ export default function PlanSummary() {
                 </div>
                 <Button variant="danger" size="sm" onClick={deletePlan}>Delete plan</Button>
               </div>
+
+              {loadError && (
+                <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md p-3">{loadError}</p>
+              )}
 
               <div className="flex border-b border-gray-200 gap-0">
                 {(['overview', 'shopping', 'prep'] as const).map(currentTab => (
