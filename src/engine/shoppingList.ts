@@ -1,5 +1,5 @@
 import { db } from '../db/db'
-import { subAdj } from '../data/substitutionGraph'
+import { getSubstitutes } from '../data/substitutionGraph'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -149,9 +149,7 @@ export async function generateConsolidationSuggestions(
   const handled = new Set<string>() // avoid duplicate pair suggestions
 
   for (const ing of planIngredients) {
-    const neighbours = subAdj.get(ing.miskg_id)
-    if (!neighbours) continue
-
+    const neighbours = await getSubstitutes(ing.miskg_id)
     for (const neighbourId of neighbours) {
       const neighbour = byMisgkId.get(neighbourId)
       if (!neighbour) continue // not in this plan

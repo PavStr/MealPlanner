@@ -1,6 +1,12 @@
 import { db } from '../db/db'
 import type { Ingredient, RecipeIngredient, RecipeNutrition } from '../db/types'
-import { NUTRITION_DATA } from '../data/nutritionData'
+import { NUTRITION_DATA, type NutrientEntry } from '../data/nutritionData'
+
+async function getNutrientData(miskg_id: string): Promise<NutrientEntry | null> {
+  const row = await db.miskgNutrition.get(miskg_id)
+  if (row) return { kcal: row.kcal, protein: row.protein, fat: row.fat, carbs: row.carbs, fiber: row.fiber }
+  return NUTRITION_DATA[miskg_id] ?? null
+}
 
 const DEFAULT_GRAMS_FALLBACK = 100
 const OIL_DENSITY_G_PER_ML = 0.8
@@ -159,7 +165,7 @@ export async function computeRecipeNutrition(recipeId: number): Promise<RecipeNu
     const ingredient = ingredientById.get(item.ingredient_id)
     if (!ingredient?.miskg_id) continue
 
-    const nutrients = NUTRITION_DATA[ingredient.miskg_id]
+    const nutrients = await getNutrientData(ingredient.miskg_id)
     if (!nutrients) continue
 
     const grams = estimateIngredientGrams(item, ingredient)

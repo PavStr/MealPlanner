@@ -9,6 +9,8 @@ import type {
   IngredientSimilarity,
   WeeklyPlan,
   WeeklyPlanRecipe,
+  MiskgSubstitution,
+  MiskgNutrition,
 } from './types'
 
 class MealPlannerDB extends Dexie {
@@ -21,6 +23,8 @@ class MealPlannerDB extends Dexie {
   ingredientSimilarities!: Table<IngredientSimilarity, [number, number]>
   weeklyPlans!: Table<WeeklyPlan, number>
   weeklyPlanRecipes!: Table<WeeklyPlanRecipe, number>
+  miskgSubstitutions!: Table<MiskgSubstitution, string>
+  miskgNutrition!: Table<MiskgNutrition, string>
 
   constructor() {
     super('MealPlannerDB')
@@ -34,6 +38,10 @@ class MealPlannerDB extends Dexie {
       ingredientSimilarities: '[ingredient_a_id+ingredient_b_id], ingredient_a_id, ingredient_b_id',
       weeklyPlans: '++plan_id',
       weeklyPlanRecipes: '++plan_recipe_id, plan_id, recipe_id, role',
+    })
+    this.version(3).stores({
+      miskgSubstitutions: 'miskg_id',
+      miskgNutrition: 'miskg_id',
     })
   }
 }

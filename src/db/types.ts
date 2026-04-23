@@ -95,3 +95,18 @@ export interface WeeklyPlanRecipe {
   role: PlanRecipeRole
   rank?: number
 }
+
+export interface MiskgSubstitution {
+  miskg_id: string      // primary key — MISKG processed ingredient ID
+  substitutes: string[] // list of substitute miskg_ids (bidirectional, deduped)
+}
+
+export interface MiskgNutrition {
+  miskg_id: string       // primary key — MISKG processed ingredient ID
+  ingredient_name: string
+  kcal: number           // per 100 g
+  protein: number        // per 100 g
+  fat: number            // per 100 g
+  carbs: number          // per 100 g
+  fiber: number          // per 100 g
+}

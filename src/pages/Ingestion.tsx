@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { db } from '../db/db'
-import type { Recipe, RecipeIngredient } from '../db/types'
+import type { Recipe, RecipeIngredient, MiskgSubstitution, MiskgNutrition } from '../db/types'
 import {
   seedIngredientSimilarities,
   seedNorwegianIngredients,
@@ -284,80 +284,178 @@ function ExportTab() {
 }
 
 function SeedTab() {
-  const [status, setStatus] = useState<{
+  const [libStatus, setLibStatus] = useState<{
     ingredientAdded: number
     ingredientSkipped: number
     similaritiesAdded: number
   } | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [libLoading, setLibLoading] = useState(false)
+  const [libError, setLibError] = useState('')
 
   const [recipeStatus, setRecipeStatus] = useState<{ imported: number; skipped: number } | null>(null)
   const [recipeLoading, setRecipeLoading] = useState(false)
+  const [recipeError, setRecipeError] = useState('')
 
-  async function doSeed() {
-    setLoading(true)
+  const [substStatus, setSubstStatus] = useState<{ added: number } | null>(null)
+  const [substLoading, setSubstLoading] = useState(false)
+  const [substError, setSubstError] = useState('')
+
+  const [nutrStatus, setNutrStatus] = useState<{ added: number } | null>(null)
+  const [nutrLoading, setNutrLoading] = useState(false)
+  const [nutrError, setNutrError] = useState('')
+
+  async function doSeedLib() {
+    setLibLoading(true)
+    setLibError('')
     try {
       const ingredientResult = await seedNorwegianIngredients()
       const similarityResult = await seedIngredientSimilarities()
-      setStatus({
+      setLibStatus({
         ingredientAdded: ingredientResult.added,
         ingredientSkipped: ingredientResult.skipped,
         similaritiesAdded: similarityResult.added,
       })
+    } catch (err) {
+      setLibError(String(err))
     } finally {
-      setLoading(false)
+      setLibLoading(false)
     }
   }
 
   async function doSeedRecipes() {
     setRecipeLoading(true)
+    setRecipeError('')
     try {
       const result = await importRecipes(SAMPLE_RECIPES_RAW as ImportedRecipe[])
       await seedRecipeNutrition(result.recipeIds)
       setRecipeStatus({ imported: result.imported, skipped: result.skipped })
+    } catch (err) {
+      setRecipeError(String(err))
     } finally {
       setRecipeLoading(false)
     }
   }
 
+  async function doSeedSubstitutions() {
+    setSubstLoading(true)
+    setSubstError('')
+    try {
+      const res = await fetch(`${import.meta.env.BASE_URL}data/substitution_pairs_compact.json`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const pairs: [string, string][] = await res.json()
+
+      // Build adjacency lists grouped by miskg_id
+      const adj = new Map<string, string[]>()
+      for (const [a, b] of pairs) {
+        if (!adj.has(a)) adj.set(a, [])
+        if (!adj.has(b)) adj.set(b, [])
+        adj.get(a)!.push(b)
+        adj.get(b)!.push(a)
+      }
+
+      const rows: MiskgSubstitution[] = [...adj.entries()].map(([miskg_id, substitutes]) => ({ miskg_id, substitutes }))
+      await db.miskgSubstitutions.bulkPut(rows)
+      setSubstStatus({ added: rows.length })
+    } catch (err) {
+      setSubstError(String(err))
+    } finally {
+      setSubstLoading(false)
+    }
+  }
+
+  async function doSeedNutrition() {
+    setNutrLoading(true)
+    setNutrError('')
+    try {
+      const res = await fetch(`${import.meta.env.BASE_URL}data/nutrition_compact.json`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data: Record<string, { n: string; k: number; p: number; f: number; c: number; b: number }> = await res.json()
+
+      const rows: MiskgNutrition[] = Object.entries(data).map(([miskg_id, v]) => ({
+        miskg_id,
+        ingredient_name: v.n,
+        kcal: v.k,
+        protein: v.p,
+        fat: v.f,
+        carbs: v.c,
+        fiber: v.b,
+      }))
+      await db.miskgNutrition.bulkPut(rows)
+      setNutrStatus({ added: rows.length })
+    } catch (err) {
+      setNutrError(String(err))
+    } finally {
+      setNutrLoading(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
-      <div className="space-y-4">
-        <p className="text-sm font-medium text-gray-800">Ingredient library</p>
+
+      <div className="space-y-3">
+        <p className="text-sm font-medium text-gray-800">1 — Ingredient library</p>
         <p className="text-sm text-gray-600">
-          Load the ingredient library into the database. This pre-populates common ingredients with canonical names,
-          normalized forms, ingredient families, shopping categories, and MISKG links for nutrition and substitutions.
+          ~170 curated ingredients with canonical names, families, categories, and MISKG IDs.
+          Enables exact / normalised / family-level ingredient matching in the recommendation engine.
         </p>
-        <ul className="text-sm text-gray-600 list-disc pl-5 space-y-1">
-          <li><strong>Exact</strong> - same ingredient in both recipes.</li>
-          <li><strong>Normalized</strong> - different form of the same base ingredient.</li>
-          <li><strong>Substitution</strong> - interchangeable according to MISKG.</li>
-          <li><strong>Family</strong> - related ingredient family with weaker reuse value.</li>
-        </ul>
-        <p className="text-sm text-gray-500">
-          Seeding is idempotent. Existing ingredients and similarities are skipped automatically.
-        </p>
-        <Button onClick={doSeed} disabled={loading}>
-          {loading ? 'Seeding...' : 'Seed ingredient library'}
+        <p className="text-sm text-gray-500">Idempotent — existing entries are skipped.</p>
+        <Button onClick={doSeedLib} disabled={libLoading}>
+          {libLoading ? 'Seeding...' : 'Seed ingredient library'}
         </Button>
-        {status && (
+        {libError && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md p-3">{libError}</p>}
+        {libStatus && (
           <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
             <p className="text-sm text-blue-800">
-              Added <strong>{status.ingredientAdded}</strong> ingredients, skipped <strong>{status.ingredientSkipped}</strong>, and added{' '}
-              <strong>{status.similaritiesAdded}</strong> substitution similarities.
+              Added <strong>{libStatus.ingredientAdded}</strong> ingredients, skipped <strong>{libStatus.ingredientSkipped}</strong>,
+              added <strong>{libStatus.similaritiesAdded}</strong> substitution similarities.
             </p>
           </div>
         )}
       </div>
 
-      <div className="border-t border-gray-200 pt-5 space-y-4">
-        <p className="text-sm font-medium text-gray-800">Sample recipes</p>
+      <div className="border-t border-gray-200 pt-5 space-y-3">
+        <p className="text-sm font-medium text-gray-800">2 — Full substitution pairs <span className="text-gray-400 font-normal">(~681 KB download, once)</span></p>
+        <p className="text-sm text-gray-600">
+          29 036 unique substitution pairs from the full MISKG dataset. Replaces the 1 515-pair pre-filtered subset —
+          enables substitution detection for any ingredient in your recipes, not just the curated 170.
+        </p>
+        <Button variant="secondary" onClick={doSeedSubstitutions} disabled={substLoading}>
+          {substLoading ? 'Downloading & seeding...' : 'Seed full substitution pairs'}
+        </Button>
+        {substError && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md p-3">{substError}</p>}
+        {substStatus && (
+          <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
+            <p className="text-sm text-blue-800">Seeded <strong>{substStatus.added}</strong> ingredient substitution entries.</p>
+          </div>
+        )}
+      </div>
+
+      <div className="border-t border-gray-200 pt-5 space-y-3">
+        <p className="text-sm font-medium text-gray-800">3 — Full nutrition data <span className="text-gray-400 font-normal">(~898 KB download, once)</span></p>
+        <p className="text-sm text-gray-600">
+          11 274 ingredients with kcal, protein, fat, carbs, and fibre per 100 g (from Edamam via MISKG).
+          Extends nutrition scoring to cover any MISKG-linked ingredient, not just the curated 142.
+        </p>
+        <Button variant="secondary" onClick={doSeedNutrition} disabled={nutrLoading}>
+          {nutrLoading ? 'Downloading & seeding...' : 'Seed full nutrition data'}
+        </Button>
+        {nutrError && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md p-3">{nutrError}</p>}
+        {nutrStatus && (
+          <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
+            <p className="text-sm text-blue-800">Seeded <strong>{nutrStatus.added}</strong> nutrition entries.</p>
+          </div>
+        )}
+      </div>
+
+      <div className="border-t border-gray-200 pt-5 space-y-3">
+        <p className="text-sm font-medium text-gray-800">4 — Sample recipes</p>
         <p className="text-sm text-gray-600">
           Load {SAMPLE_RECIPES_RAW.length} sample recipes into your library. Recipes already present (same title) are skipped.
         </p>
         <Button variant="secondary" onClick={doSeedRecipes} disabled={recipeLoading}>
           {recipeLoading ? 'Importing...' : `Seed ${SAMPLE_RECIPES_RAW.length} sample recipes`}
         </Button>
+        {recipeError && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md p-3">{recipeError}</p>}
         {recipeStatus && (
           <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
             <p className="text-sm text-blue-800">
@@ -366,6 +464,7 @@ function SeedTab() {
           </div>
         )}
       </div>
+
     </div>
   )
 }
