@@ -1,12 +1,15 @@
 import { db } from '../db/db'
 import type { Recipe, Ingredient } from '../db/types'
 import { SIMILARITY_WEIGHTS } from '../data/ingredientLibrary'
+import { subAdj } from '../data/substitutionGraph'
+import { nutritionScore as nutritionScoreFn } from './nutrition'
 
 export interface RecommendationResult {
   recipe: Recipe
   score: number
   exactOverlap: number
   normalizedOverlap: number
+  substitutionOverlap: number
   familyOverlap: number
   newIngredientCount: number
   sharedIngredientNames: string[]
@@ -14,17 +17,17 @@ export interface RecommendationResult {
   explanation: string[]
 }
 
-// Top-level scoring weights — must sum to 1.0
 const W = {
   ingredientReuse: 0.60,
-  cost:            0.15, // placeholder — Phase 2
-  nutrition:       0.25, // placeholder — Phase 2
+  cost: 0.15,
+  nutrition: 0.25,
 }
 
 interface AnchorProfile {
   idSet: Set<number>
   normalizedSet: Set<string>
   familySet: Set<string>
+  miskgIdSet: Set<string>
 }
 
 async function buildAnchorProfile(anchorRecipeIds: number[]): Promise<AnchorProfile> {
@@ -37,10 +40,22 @@ async function buildAnchorProfile(anchorRecipeIds: number[]): Promise<AnchorProf
   const ingredients = (await db.ingredients.bulkGet(uniqueIngredientIds)).filter(Boolean) as Ingredient[]
 
   return {
-    idSet:         new Set(uniqueIngredientIds),
+    idSet: new Set(uniqueIngredientIds),
     normalizedSet: new Set(ingredients.map(i => i.normalized_name)),
-    familySet:     new Set(ingredients.map(i => i.ingredient_family).filter(Boolean) as string[]),
+    familySet: new Set(ingredients.map(i => i.ingredient_family).filter(Boolean) as string[]),
+    miskgIdSet: new Set(ingredients.map(i => i.miskg_id).filter(Boolean) as string[]),
   }
+}
+
+function hasSubstitutionOverlap(miskgId: string, anchorMiskgIds: Set<string>): boolean {
+  const neighbours = subAdj.get(miskgId)
+  if (!neighbours) return false
+
+  for (const neighbour of neighbours) {
+    if (anchorMiskgIds.has(neighbour)) return true
+  }
+
+  return false
 }
 
 export async function getRecommendations(
@@ -55,7 +70,7 @@ export async function getRecommendations(
   ])
 
   const candidates = allRecipes.filter(
-    r => r.recipe_id != null && !anchorRecipeIds.includes(r.recipe_id!),
+    recipe => recipe.recipe_id != null && !anchorRecipeIds.includes(recipe.recipe_id!),
   )
 
   const scored: RecommendationResult[] = []
@@ -63,88 +78,93 @@ export async function getRecommendations(
   for (const candidate of candidates) {
     if (candidate.recipe_id == null) continue
 
-    const candidateItems = await db.recipeIngredients
-      .where('recipe_id')
-      .equals(candidate.recipe_id)
-      .toArray()
+    const [candidateItems, recipeNutrition] = await Promise.all([
+      db.recipeIngredients.where('recipe_id').equals(candidate.recipe_id).toArray(),
+      db.recipeNutrition.get(candidate.recipe_id),
+    ])
 
     if (candidateItems.length === 0) continue
 
-    const ingredientIds = candidateItems.map(i => i.ingredient_id)
-    const ingredients = (await db.ingredients.bulkGet(ingredientIds)) as (Ingredient | undefined)[]
+    const ingredientIds = candidateItems.map(item => item.ingredient_id)
+    const ingredients = await db.ingredients.bulkGet(ingredientIds)
 
-    let exactOverlap      = 0
+    let exactOverlap = 0
     let normalizedOverlap = 0
-    let familyOverlap     = 0
+    let substitutionOverlap = 0
+    let familyOverlap = 0
     let newIngredientCount = 0
     const sharedIngredientNames: string[] = []
-    const newIngredientNames:    string[] = []
+    const newIngredientNames: string[] = []
 
     for (let i = 0; i < candidateItems.length; i++) {
-      const ing = ingredients[i]
-      if (!ing) continue
-      const ingId = candidateItems[i].ingredient_id
+      const ingredient = ingredients[i]
+      if (!ingredient) continue
 
-      if (anchor.idSet.has(ingId)) {
-        // Exact ingredient match — full credit
+      const ingredientId = candidateItems[i].ingredient_id
+
+      if (anchor.idSet.has(ingredientId)) {
         exactOverlap++
-        sharedIngredientNames.push(ing.canonical_name)
-      } else if (anchor.normalizedSet.has(ing.normalized_name)) {
-        // Same base ingredient, different form (e.g. rødløk vs gul løk)
+        sharedIngredientNames.push(ingredient.canonical_name)
+      } else if (anchor.normalizedSet.has(ingredient.normalized_name)) {
         normalizedOverlap++
-        sharedIngredientNames.push(`${ing.canonical_name} (lignende)`)
-      } else if (ing.ingredient_family && anchor.familySet.has(ing.ingredient_family)) {
-        // Same culinary family (e.g. brokkoli vs blomkål — both kålvekst)
+        sharedIngredientNames.push(`${ingredient.canonical_name} (similar)`)
+      } else if (
+        ingredient.miskg_id &&
+        hasSubstitutionOverlap(ingredient.miskg_id, anchor.miskgIdSet)
+      ) {
+        substitutionOverlap++
+        sharedIngredientNames.push(`${ingredient.canonical_name} (interchangeable)`)
+      } else if (ingredient.ingredient_family && anchor.familySet.has(ingredient.ingredient_family)) {
         familyOverlap++
-        // family matches get partial credit but are not shown as "shared" to keep UI clean
       } else {
         newIngredientCount++
-        newIngredientNames.push(ing.canonical_name)
+        newIngredientNames.push(ingredient.canonical_name)
       }
     }
 
     const total = candidateItems.length
-
-    // Weighted overlap score (0–1 range before penalty)
     const overlapScore =
-      (exactOverlap      * SIMILARITY_WEIGHTS.exact       +
-       normalizedOverlap * SIMILARITY_WEIGHTS.normalized  +
-       familyOverlap     * SIMILARITY_WEIGHTS.family) / total
+      (exactOverlap * SIMILARITY_WEIGHTS.exact +
+       normalizedOverlap * SIMILARITY_WEIGHTS.normalized +
+       substitutionOverlap * SIMILARITY_WEIGHTS.substitution +
+       familyOverlap * SIMILARITY_WEIGHTS.family) / total
 
-    const newRatio        = newIngredientCount / total
+    const newRatio = newIngredientCount / total
     const ingredientScore = overlapScore - SIMILARITY_WEIGHTS.new_penalty * newRatio
-
-    // Cost and nutrition — neutral placeholders until Phase 2
-    const costScore      = 0.5
-    const nutritionScore = 0.5
+    const costScore = 0.5
+    const nutritionScore = nutritionScoreFn(recipeNutrition ?? null)
 
     const finalScore =
       W.ingredientReuse * ingredientScore +
-      W.cost            * costScore       +
-      W.nutrition       * nutritionScore
+      W.cost * costScore +
+      W.nutrition * nutritionScore
 
-    // Build human-readable explanation
     const explanation: string[] = []
     if (exactOverlap > 0) {
       explanation.push(
-        `Deler ${exactOverlap} ingrediens${exactOverlap !== 1 ? 'er' : ''} med valgte oppskrifter`,
+        `Shares ${exactOverlap} ingredient${exactOverlap !== 1 ? 's' : ''} with your selected recipes`,
       )
     }
     if (normalizedOverlap > 0) {
       explanation.push(
-        `${normalizedOverlap} lignende ingrediens${normalizedOverlap !== 1 ? 'er' : ''} (f.eks. annen variant av samme råvare)`,
+        `${normalizedOverlap} similar ingredient${normalizedOverlap !== 1 ? 's' : ''} (same base ingredient)`,
+      )
+    }
+    if (substitutionOverlap > 0) {
+      explanation.push(
+        `${substitutionOverlap} substitutable ingredient${substitutionOverlap !== 1 ? 's' : ''} from MISKG`,
       )
     }
     if (familyOverlap > 0) {
       explanation.push(
-        `${familyOverlap} ingrediens${familyOverlap !== 1 ? 'er' : ''} fra samme råvarefamilie`,
+        `${familyOverlap} ingredient${familyOverlap !== 1 ? 's' : ''} from the same ingredient family`,
       )
     }
-    if (exactOverlap + normalizedOverlap + familyOverlap === 0) {
-      explanation.push('Ingen felles ingredienser med valgte oppskrifter')
+    if (exactOverlap + normalizedOverlap + substitutionOverlap + familyOverlap === 0) {
+      explanation.push('No ingredient overlap with the selected recipes')
     }
     explanation.push(
-      `Legger til ${newIngredientCount} nye ingredienstype${newIngredientCount !== 1 ? 'r' : ''}`,
+      `Adds ${newIngredientCount} new ingredient type${newIngredientCount !== 1 ? 's' : ''}`,
     )
 
     scored.push({
@@ -152,6 +172,7 @@ export async function getRecommendations(
       score: finalScore,
       exactOverlap,
       normalizedOverlap,
+      substitutionOverlap,
       familyOverlap,
       newIngredientCount,
       sharedIngredientNames,

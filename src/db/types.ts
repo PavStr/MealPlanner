@@ -1,7 +1,7 @@
 export type RecipeStatus = 'draft' | 'review' | 'active' | 'archived'
 export type NutritionConfidence = 'high' | 'medium' | 'low' | 'estimated'
 export type CostConfidence = 'high' | 'medium' | 'low' | 'estimated'
-export type SimilarityType = 'exact' | 'normalized' | 'family'
+export type SimilarityType = 'exact' | 'normalized' | 'family' | 'substitution'
 export type PlanRecipeRole = 'anchor' | 'suggested' | 'final'
 export type SourceType = 'manual' | 'import' | 'gpt' | 'url'
 

@@ -1,5 +1,6 @@
 import { db } from '../db/db'
-import type { Ingredient } from '../db/types'
+import type { Ingredient, IngredientSimilarity } from '../db/types'
+import { SUBSTITUTION_PAIRS } from './substitutionPairs'
 
 // ---------------------------------------------------------------------------
 // Ingredient template definition
@@ -22,6 +23,7 @@ interface IngredientTemplate {
 export const SIMILARITY_WEIGHTS = {
   exact: 1.0,       // same ingredient_id
   normalized: 0.8,  // different ingredient_id, same normalized_name (e.g. salmon fillet → salmon)
+  substitution: 0.6, // MISKG substitution pair, between normalized and family similarity
   family: 0.4,      // same ingredient_family, different normalized_name (e.g. broccoli vs cauliflower)
   new_penalty: 0.9, // multiplied by new-ingredient ratio to penalise shopping basket growth
 }
@@ -361,6 +363,51 @@ export async function seedIngredients(): Promise<{ added: number; skipped: numbe
   }
 
   return { added, skipped }
+}
+
+export async function seedIngredientSimilarities(): Promise<{ added: number }> {
+  const ingredients = await db.ingredients.toArray()
+  const ingredientIdsByMiskg = new Map<string, number[]>()
+
+  for (const ingredient of ingredients) {
+    if (ingredient.ingredient_id == null || !ingredient.miskg_id) continue
+
+    const ids = ingredientIdsByMiskg.get(ingredient.miskg_id) ?? []
+    ids.push(ingredient.ingredient_id)
+    ingredientIdsByMiskg.set(ingredient.miskg_id, ids)
+  }
+
+  let added = 0
+
+  for (const [miskgA, miskgB] of SUBSTITUTION_PAIRS) {
+    const ingredientIdsA = ingredientIdsByMiskg.get(miskgA)
+    const ingredientIdsB = ingredientIdsByMiskg.get(miskgB)
+
+    if (!ingredientIdsA || !ingredientIdsB) continue
+
+    for (const ingredientIdA of ingredientIdsA) {
+      for (const ingredientIdB of ingredientIdsB) {
+        if (ingredientIdA === ingredientIdB) continue
+
+        const [a, b] = ingredientIdA < ingredientIdB
+          ? [ingredientIdA, ingredientIdB]
+          : [ingredientIdB, ingredientIdA]
+
+        const exists = await db.ingredientSimilarities.get([a, b])
+        if (exists) continue
+
+        await db.ingredientSimilarities.put({
+          ingredient_a_id: a,
+          ingredient_b_id: b,
+          similarity_type: 'substitution',
+          weight: SIMILARITY_WEIGHTS.substitution,
+        } as IngredientSimilarity)
+        added++
+      }
+    }
+  }
+
+  return { added }
 }
 
 // ---------------------------------------------------------------------------

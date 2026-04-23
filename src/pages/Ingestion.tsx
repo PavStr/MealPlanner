@@ -1,10 +1,13 @@
 import { useState } from 'react'
 import { db } from '../db/db'
-import type { Recipe, Ingredient, RecipeIngredient } from '../db/types'
-import { seedNorwegianIngredients } from '../data/ingredientLibrary'
+import type { Recipe, RecipeIngredient } from '../db/types'
+import {
+  seedIngredientSimilarities,
+  seedNorwegianIngredients,
+} from '../data/ingredientLibrary'
+import { resolveOrCreateIngredient } from '../data/ingredientResolver'
+import { seedRecipeNutrition } from '../engine/nutrition'
 import Button from '../components/ui/Button'
-
-// ── JSON import ───────────────────────────────────────────────────────────────
 
 interface ImportedIngredient {
   raw_text?: string
@@ -43,65 +46,76 @@ function validateImport(raw: unknown): ImportPreview {
       errors.push(`Item ${i + 1}: not an object`)
       return
     }
-    const r = item as Record<string, unknown>
-    if (typeof r.title !== 'string' || !r.title.trim()) {
+
+    const recipe = item as Record<string, unknown>
+    if (typeof recipe.title !== 'string' || !recipe.title.trim()) {
       errors.push(`Item ${i + 1}: missing "title"`)
       return
     }
-    valid.push(r as unknown as ImportedRecipe)
+
+    valid.push(recipe as unknown as ImportedRecipe)
   })
 
   return { valid, errors }
 }
 
-async function findOrCreateIngredient(name: string): Promise<number> {
-  const canonical = name.trim()
-  const normalized = canonical.toLowerCase().replace(/\s+/g, ' ').trim()
-  const existing = await db.ingredients.where('normalized_name').equals(normalized).first()
-  if (existing?.ingredient_id != null) return existing.ingredient_id
-  return db.ingredients.add({ canonical_name: canonical, normalized_name: normalized } as Ingredient)
-}
-
-async function importRecipes(recipes: ImportedRecipe[]): Promise<{ imported: number; skipped: number }> {
+async function importRecipes(
+  recipes: ImportedRecipe[],
+): Promise<{ imported: number; skipped: number; recipeIds: number[] }> {
   let imported = 0
   let skipped = 0
   const now = Date.now()
+  const recipeIds: number[] = []
 
-  for (const r of recipes) {
-    const existing = await db.recipes.where('title').equals(r.title.trim()).first()
-    if (existing) { skipped++; continue }
+  for (const recipe of recipes) {
+    const existing = await db.recipes.where('title').equals(recipe.title.trim()).first()
+    if (existing) {
+      skipped++
+      continue
+    }
 
     const recipeId = await db.recipes.add({
-      title: r.title.trim(),
-      description: r.description?.trim() || undefined,
-      default_servings: r.default_servings ?? 2,
-      prep_time_min: r.prep_time_min,
-      cook_time_min: r.cook_time_min,
-      total_time_min: (r.prep_time_min != null && r.cook_time_min != null) ? r.prep_time_min + r.cook_time_min : undefined,
-      instructions: r.instructions?.trim() || undefined,
-      tags: r.tags ?? [],
-      status: (['draft', 'review', 'active', 'archived'].includes(r.status ?? '') ? r.status : 'draft') as Recipe['status'],
+      title: recipe.title.trim(),
+      description: recipe.description?.trim() || undefined,
+      default_servings: recipe.default_servings ?? 2,
+      prep_time_min: recipe.prep_time_min,
+      cook_time_min: recipe.cook_time_min,
+      total_time_min:
+        recipe.prep_time_min != null && recipe.cook_time_min != null
+          ? recipe.prep_time_min + recipe.cook_time_min
+          : undefined,
+      instructions: recipe.instructions?.trim() || undefined,
+      tags: recipe.tags ?? [],
+      status: (
+        ['draft', 'review', 'active', 'archived'].includes(recipe.status ?? '')
+          ? recipe.status
+          : 'draft'
+      ) as Recipe['status'],
       source_type: 'import',
-      source_reference: r.source_reference,
+      source_reference: recipe.source_reference,
       created_at: now,
       updated_at: now,
     } as Recipe)
 
-    if (r.ingredients && r.ingredients.length > 0) {
-      for (const ing of r.ingredients) {
-        const name = ing.ingredient_name?.trim() || ing.raw_text?.trim()
+    recipeIds.push(recipeId)
+
+    if (recipe.ingredients && recipe.ingredients.length > 0) {
+      for (const ingredient of recipe.ingredients) {
+        const name = ingredient.ingredient_name?.trim() || ingredient.raw_text?.trim()
         if (!name) continue
-        const ingredientId = await findOrCreateIngredient(name)
-        if (ing.category?.trim()) {
-          await db.ingredients.update(ingredientId, { category: ing.category.trim() })
+
+        const ingredientId = await resolveOrCreateIngredient(name)
+        if (ingredient.category?.trim()) {
+          await db.ingredients.update(ingredientId, { category: ingredient.category.trim() })
         }
+
         await db.recipeIngredients.add({
           recipe_id: recipeId,
           ingredient_id: ingredientId,
-          raw_text: ing.raw_text?.trim() || name,
-          quantity: ing.quantity,
-          unit: ing.unit?.trim() || undefined,
-          optional_flag: ing.optional ?? false,
+          raw_text: ingredient.raw_text?.trim() || name,
+          quantity: ingredient.quantity,
+          unit: ingredient.unit?.trim() || undefined,
+          optional_flag: ingredient.optional ?? false,
         } as RecipeIngredient)
       }
     }
@@ -109,10 +123,8 @@ async function importRecipes(recipes: ImportedRecipe[]): Promise<{ imported: num
     imported++
   }
 
-  return { imported, skipped }
+  return { imported, skipped, recipeIds }
 }
-
-// ── Export ────────────────────────────────────────────────────────────────────
 
 async function exportAll() {
   const [recipes, recipeIngredients, ingredients] = await Promise.all([
@@ -121,32 +133,30 @@ async function exportAll() {
     db.ingredients.toArray(),
   ])
 
-  const ingMap = new Map(ingredients.map(i => [i.ingredient_id!, i]))
+  const ingredientMap = new Map(ingredients.map(ingredient => [ingredient.ingredient_id!, ingredient]))
 
-  const exported = recipes.map(r => ({
-    ...r,
+  const exported = recipes.map(recipe => ({
+    ...recipe,
     ingredients: recipeIngredients
-      .filter(ri => ri.recipe_id === r.recipe_id)
-      .map(ri => ({
-        raw_text: ri.raw_text,
-        quantity: ri.quantity,
-        unit: ri.unit,
-        ingredient_name: ingMap.get(ri.ingredient_id)?.canonical_name,
-        category: ingMap.get(ri.ingredient_id)?.category,
-        optional: ri.optional_flag,
+      .filter(recipeIngredient => recipeIngredient.recipe_id === recipe.recipe_id)
+      .map(recipeIngredient => ({
+        raw_text: recipeIngredient.raw_text,
+        quantity: recipeIngredient.quantity,
+        unit: recipeIngredient.unit,
+        ingredient_name: ingredientMap.get(recipeIngredient.ingredient_id)?.canonical_name,
+        category: ingredientMap.get(recipeIngredient.ingredient_id)?.category,
+        optional: recipeIngredient.optional_flag,
       })),
   }))
 
   const blob = new Blob([JSON.stringify(exported, null, 2)], { type: 'application/json' })
   const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `meal-planner-export-${new Date().toISOString().slice(0, 10)}.json`
-  a.click()
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `meal-planner-export-${new Date().toISOString().slice(0, 10)}.json`
+  link.click()
   URL.revokeObjectURL(url)
 }
-
-// ── JSONImportTab ─────────────────────────────────────────────────────────────
 
 function JSONImportTab() {
   const [text, setText] = useState('')
@@ -156,19 +166,22 @@ function JSONImportTab() {
 
   function parsePreview() {
     setResult(null)
+
     try {
       const parsed = JSON.parse(text)
       setPreview(validateImport(parsed))
-    } catch (e) {
-      setPreview({ valid: [], errors: [`JSON parse error: ${String(e)}`] })
+    } catch (error) {
+      setPreview({ valid: [], errors: [`JSON parse error: ${String(error)}`] })
     }
   }
 
   async function doImport() {
     if (!preview || preview.valid.length === 0) return
+
     setImporting(true)
     try {
       const res = await importRecipes(preview.valid)
+      await seedRecipeNutrition(res.recipeIds)
       setResult(res)
       setText('')
       setPreview(null)
@@ -187,15 +200,21 @@ function JSONImportTab() {
           className="w-full h-52 border border-gray-300 rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
           placeholder={'[\n  {\n    "title": "Pasta Bolognese",\n    "default_servings": 4,\n    "status": "active",\n    "tags": ["pasta", "meat"],\n    "ingredients": [\n      { "raw_text": "500g minced beef", "ingredient_name": "minced beef", "category": "Meat" }\n    ]\n  }\n]'}
           value={text}
-          onChange={e => { setText(e.target.value); setPreview(null); setResult(null) }}
+          onChange={event => {
+            setText(event.target.value)
+            setPreview(null)
+            setResult(null)
+          }}
         />
       </div>
 
       <div className="flex gap-2">
-        <Button variant="secondary" onClick={parsePreview} disabled={!text.trim()}>Preview</Button>
+        <Button variant="secondary" onClick={parsePreview} disabled={!text.trim()}>
+          Preview
+        </Button>
         {preview && preview.valid.length > 0 && (
           <Button onClick={doImport} disabled={importing}>
-            {importing ? 'Importing…' : `Import ${preview.valid.length} recipe${preview.valid.length !== 1 ? 's' : ''}`}
+            {importing ? 'Importing...' : `Import ${preview.valid.length} recipe${preview.valid.length !== 1 ? 's' : ''}`}
           </Button>
         )}
       </div>
@@ -204,18 +223,22 @@ function JSONImportTab() {
         <div className="space-y-2">
           {preview.errors.length > 0 && (
             <div className="bg-red-50 border border-red-200 rounded-md p-3 space-y-1">
-              {preview.errors.map((e, i) => <p key={i} className="text-xs text-red-700">{e}</p>)}
+              {preview.errors.map((error, index) => (
+                <p key={index} className="text-xs text-red-700">{error}</p>
+              ))}
             </div>
           )}
           {preview.valid.length > 0 && (
             <div className="bg-green-50 border border-green-200 rounded-md p-3">
-              <p className="text-xs font-medium text-green-800 mb-2">{preview.valid.length} valid recipe{preview.valid.length !== 1 ? 's' : ''} ready to import:</p>
+              <p className="text-xs font-medium text-green-800 mb-2">
+                {preview.valid.length} valid recipe{preview.valid.length !== 1 ? 's' : ''} ready to import:
+              </p>
               <ul className="space-y-1">
-                {preview.valid.map((r, i) => (
-                  <li key={i} className="text-xs text-green-700">
-                    <strong>{r.title}</strong>
-                    {r.ingredients ? ` — ${r.ingredients.length} ingredient${r.ingredients.length !== 1 ? 's' : ''}` : ''}
-                    {r.status ? ` — ${r.status}` : ''}
+                {preview.valid.map((recipe, index) => (
+                  <li key={index} className="text-xs text-green-700">
+                    <strong>{recipe.title}</strong>
+                    {recipe.ingredients ? ` - ${recipe.ingredients.length} ingredient${recipe.ingredients.length !== 1 ? 's' : ''}` : ''}
+                    {recipe.status ? ` - ${recipe.status}` : ''}
                   </li>
                 ))}
               </ul>
@@ -227,8 +250,8 @@ function JSONImportTab() {
       {result && (
         <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
           <p className="text-sm text-blue-800">
-            Done — <strong>{result.imported}</strong> recipe{result.imported !== 1 ? 's' : ''} imported,{' '}
-            <strong>{result.skipped}</strong> skipped (duplicate title).
+            Imported <strong>{result.imported}</strong> recipe{result.imported !== 1 ? 's' : ''},{' '}
+            <strong>{result.skipped}</strong> skipped as duplicates.
           </p>
         </div>
       )}
@@ -236,11 +259,15 @@ function JSONImportTab() {
   )
 }
 
-// ── ExportTab ─────────────────────────────────────────────────────────────────
-
 function ExportTab() {
   const [done, setDone] = useState(false)
-  async function doExport() { await exportAll(); setDone(true); setTimeout(() => setDone(false), 3000) }
+
+  async function doExport() {
+    await exportAll()
+    setDone(true)
+    setTimeout(() => setDone(false), 3000)
+  }
+
   return (
     <div className="space-y-4">
       <p className="text-sm text-gray-600">
@@ -255,19 +282,24 @@ function ExportTab() {
   )
 }
 
-// ── Ingestion (main) ──────────────────────────────────────────────────────────
-
-// ── SeedTab ───────────────────────────────────────────────────────────────────
-
 function SeedTab() {
-  const [status, setStatus] = useState<{ added: number; skipped: number } | null>(null)
+  const [status, setStatus] = useState<{
+    ingredientAdded: number
+    ingredientSkipped: number
+    similaritiesAdded: number
+  } | null>(null)
   const [loading, setLoading] = useState(false)
 
   async function doSeed() {
     setLoading(true)
     try {
-      const result = await seedNorwegianIngredients()
-      setStatus(result)
+      const ingredientResult = await seedNorwegianIngredients()
+      const similarityResult = await seedIngredientSimilarities()
+      setStatus({
+        ingredientAdded: ingredientResult.added,
+        ingredientSkipped: ingredientResult.skipped,
+        similaritiesAdded: similarityResult.added,
+      })
     } finally {
       setLoading(false)
     }
@@ -276,37 +308,35 @@ function SeedTab() {
   return (
     <div className="space-y-4">
       <p className="text-sm text-gray-600">
-        Load the ingredient library into the database. This pre-populates ~170 common ingredients
-        with English canonical names, normalized forms, ingredient families, and shopping categories.
-        Each ingredient is linked to the MISKG dataset for future nutrition and flavour data.
+        Load the ingredient library into the database. This pre-populates common ingredients with canonical names,
+        normalized forms, ingredient families, shopping categories, and MISKG links for nutrition and substitutions.
       </p>
       <p className="text-sm text-gray-600">
-        The recommendation engine uses <strong>normalized names</strong> and <strong>ingredient families</strong> to
-        detect overlap between recipes at three levels:
+        The recommendation engine uses overlap at four levels:
       </p>
       <ul className="text-sm text-gray-600 list-disc pl-5 space-y-1">
-        <li><strong>Exact</strong> — same ingredient (e.g. <em>onion</em> in two recipes) — full credit</li>
-        <li><strong>Normalized</strong> — different form of the same ingredient (e.g. <em>red onion</em> vs <em>yellow onion</em>, both normalize to <em>onion</em>) — 80% credit</li>
-        <li><strong>Family</strong> — same culinary family (e.g. <em>broccoli</em> vs <em>cauliflower</em>, both <em>brassica</em>) — 40% credit</li>
+        <li><strong>Exact</strong> - same ingredient in both recipes.</li>
+        <li><strong>Normalized</strong> - different form of the same base ingredient.</li>
+        <li><strong>Substitution</strong> - interchangeable according to MISKG.</li>
+        <li><strong>Family</strong> - related ingredient family with weaker reuse value.</li>
       </ul>
       <p className="text-sm text-gray-500">
-        Already-seeded ingredients are skipped. Safe to run multiple times.
+        Seeding is idempotent. Existing ingredients and similarities are skipped automatically.
       </p>
       <Button onClick={doSeed} disabled={loading}>
-        {loading ? 'Seeding…' : 'Seed ingredient library'}
+        {loading ? 'Seeding...' : 'Seed DB'}
       </Button>
       {status && (
         <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
           <p className="text-sm text-blue-800">
-            Done — <strong>{status.added}</strong> ingredients added, <strong>{status.skipped}</strong> already existed.
+            Added <strong>{status.ingredientAdded}</strong> ingredients, skipped <strong>{status.ingredientSkipped}</strong>, and added{' '}
+            <strong>{status.similaritiesAdded}</strong> substitution similarities.
           </p>
         </div>
       )}
     </div>
   )
 }
-
-// ── Ingestion (main) ──────────────────────────────────────────────────────────
 
 type Tab = 'seed' | 'import' | 'export'
 
@@ -324,24 +354,25 @@ export default function Ingestion() {
       <h2 className="text-xl font-bold text-gray-900 mb-4">Import / Export</h2>
 
       <div className="flex border-b border-gray-200 gap-0 mb-5">
-        {tabs.map(t => (
+        {tabs.map(tabItem => (
           <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
+            key={tabItem.id}
+            onClick={() => setTab(tabItem.id)}
             className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-              tab === t.id ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-800'
+              tab === tabItem.id
+                ? 'border-blue-600 text-blue-700'
+                : 'border-transparent text-gray-500 hover:text-gray-800'
             }`}
           >
-            {t.label}
+            {tabItem.label}
           </button>
         ))}
       </div>
 
-      {tab === 'seed'   && <SeedTab />}
+      {tab === 'seed' && <SeedTab />}
       {tab === 'import' && <JSONImportTab />}
       {tab === 'export' && <ExportTab />}
 
-      {/* JSON schema reference */}
       <div className="mt-8 border-t border-gray-200 pt-5">
         <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">JSON Schema Reference</p>
         <pre className="bg-gray-50 border border-gray-200 rounded-md p-3 text-xs text-gray-700 overflow-auto">{`[

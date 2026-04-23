@@ -1,17 +1,5 @@
 import { db } from '../db/db'
-import { SUBSTITUTION_PAIRS } from '../data/substitutionPairs'
-
-// ---------------------------------------------------------------------------
-// Build substitution adjacency once at module load (1 515 pairs, fast)
-// ---------------------------------------------------------------------------
-
-const subAdj = new Map<string, Set<string>>()
-for (const [a, b] of SUBSTITUTION_PAIRS) {
-  if (!subAdj.has(a)) subAdj.set(a, new Set())
-  if (!subAdj.has(b)) subAdj.set(b, new Set())
-  subAdj.get(a)!.add(b)
-  subAdj.get(b)!.add(a)
-}
+import { subAdj } from '../data/substitutionGraph'
 
 // ---------------------------------------------------------------------------
 // Types
