@@ -3,7 +3,14 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useParams, useNavigate } from 'react-router-dom'
 import { db } from '../db/db'
 import type { Recipe, WeeklyPlan } from '../db/types'
-import { generateShoppingList, generatePrepPlan, type ShoppingList, type PrepTask } from '../engine/shoppingList'
+import {
+  generateShoppingList,
+  generatePrepPlan,
+  generateConsolidationSuggestions,
+  type ShoppingList,
+  type PrepTask,
+  type ConsolidationSuggestion,
+} from '../engine/shoppingList'
 import Badge from '../components/ui/Badge'
 import Button from '../components/ui/Button'
 
@@ -86,6 +93,44 @@ function ShoppingListSection({ list }: { list: ShoppingList }) {
   )
 }
 
+// ── Consolidation suggestions ─────────────────────────────────────────────────
+
+function ConsolidationPanel({ suggestions }: { suggestions: ConsolidationSuggestion[] }) {
+  if (suggestions.length === 0) return null
+
+  return (
+    <div className="mb-5 border border-amber-200 bg-amber-50 rounded-lg overflow-hidden">
+      <div className="px-4 py-2.5 bg-amber-100 border-b border-amber-200">
+        <p className="text-sm font-semibold text-amber-900">
+          Simplify your shop — {suggestions.length} swap{suggestions.length !== 1 ? 's' : ''} suggested
+        </p>
+        <p className="text-xs text-amber-700 mt-0.5">
+          These ingredients are interchangeable. Using one throughout reduces what you need to buy.
+        </p>
+      </div>
+      <ul className="divide-y divide-amber-100">
+        {suggestions.map((s, i) => (
+          <li key={i} className="px-4 py-3 flex items-start gap-3">
+            <span className="mt-0.5 shrink-0 text-amber-500">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M7 16V4m0 0L3 8m4-4l4 4M17 8v12m0 0l4-4m-4 4l-4-4" />
+              </svg>
+            </span>
+            <div className="min-w-0">
+              <p className="text-sm text-gray-800">
+                Use <strong>{s.keep}</strong> instead of <strong>{s.replace}</strong>
+              </p>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Swap in: {s.affectedRecipes.join(', ')}
+              </p>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 // ── Prep plan section ─────────────────────────────────────────────────────────
 
 function PrepPlanSection({ tasks }: { tasks: PrepTask[] }) {
@@ -124,6 +169,7 @@ export default function PlanSummary() {
   const [recipes, setRecipes] = useState<Map<number, Recipe>>(new Map())
   const [shoppingList, setShoppingList] = useState<ShoppingList>({ byCategory: {}, categories: [] })
   const [prepTasks, setPrepTasks] = useState<PrepTask[]>([])
+  const [consolidations, setConsolidations] = useState<ConsolidationSuggestion[]>([])
   const [tab, setTab] = useState<'overview' | 'shopping' | 'prep'>('overview')
 
   // Resolve active plan from URL param or default to latest
@@ -145,12 +191,14 @@ export default function PlanSummary() {
       db.recipes.bulkGet(ids),
       generateShoppingList(finalIds),
       generatePrepPlan(finalIds),
-    ]).then(([recs, list, tasks]) => {
+      generateConsolidationSuggestions(finalIds),
+    ]).then(([recs, list, tasks, swaps]) => {
       const map = new Map<number, Recipe>()
       recs.forEach(r => { if (r?.recipe_id) map.set(r.recipe_id, r) })
       setRecipes(map)
       setShoppingList(list)
       setPrepTasks(tasks)
+      setConsolidations(swaps)
     })
   }, [planRecipes])
 
@@ -287,7 +335,12 @@ export default function PlanSummary() {
                 </div>
               )}
 
-              {tab === 'shopping' && <ShoppingListSection list={shoppingList} />}
+              {tab === 'shopping' && (
+                <>
+                  <ConsolidationPanel suggestions={consolidations} />
+                  <ShoppingListSection list={shoppingList} />
+                </>
+              )}
               {tab === 'prep' && <PrepPlanSection tasks={prepTasks} />}
             </div>
           )}

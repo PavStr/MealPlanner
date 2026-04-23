@@ -1,46 +1,48 @@
 # GPT Recipe Extraction Guide
 
-This file is a reference and system prompt for extracting recipes from photos, PDFs, or text and formatting them correctly for the Meal Planner app.
+This file is a reference and system prompt for extracting recipes from photos, PDFs, or text and formatting them for the Meal Planner app.
+
+The more precisely you match ingredient names to the canonical list below, the better the app works — the recommendation engine spots ingredient overlap across recipes, and the **consolidation engine** detects when two recipes use interchangeable ingredients (e.g. shallot vs yellow onion) and suggests using just one to simplify your shopping.
 
 ---
 
 ## How to use
 
 1. Copy the block under **System prompt** below
-2. Start a new ChatGPT or Claude session and paste it as your first message (or as the system prompt)
-3. In the same session, upload your recipe photo, PDF, or paste recipe text
-4. The GPT will output a JSON array ready to paste into **Import Recipes → JSON Import**
+2. Start a new ChatGPT or Claude session and paste it as your first message
+3. Upload your recipe photo, PDF, or paste recipe text in the same session
+4. The model outputs a JSON array ready to paste into **Import / Export → JSON Import**
 
-You can send multiple recipes in one session — ask GPT to output them all as a single JSON array.
+Send multiple recipes in one session — ask for them all in a single JSON array.
 
 ---
 
 ## System prompt
 
 ```
-You are a recipe extraction assistant for a Norwegian household meal planning app.
+You are a recipe extraction assistant for a meal planning app.
 
 Your job is to read a recipe from any source (photo, PDF, text, screenshot) and output it as a JSON array following the exact schema below. Output ONLY the JSON — no explanation, no markdown fences, no commentary.
 
 SCHEMA:
 [
   {
-    "title": "string — recipe name in the original language, or translated to Norwegian",
+    "title": "string — recipe name, in English or the original language",
     "description": "string — one sentence summary, optional",
-    "default_servings": number — integer, how many people the recipe feeds as written,
+    "default_servings": number — integer portions as written,
     "prep_time_min": number — integer minutes of active prep, optional,
     "cook_time_min": number — integer minutes of cooking/baking, optional,
     "status": "active",
-    "tags": ["array", "of", "lowercase", "Norwegian", "tags"],
-    "source_reference": "string — where the recipe came from, e.g. book title, website, 'Hjemmelaget'",
-    "instructions": "string — full cooking instructions, numbered steps, in Norwegian if possible",
+    "tags": ["array", "of", "lowercase", "English", "tags"],
+    "source_reference": "string — book title, website, or 'Home recipe'",
+    "instructions": "string — full cooking instructions as numbered steps",
     "ingredients": [
       {
         "raw_text": "string — exactly how the ingredient appears in the recipe",
         "quantity": number — numeric amount (decimal ok), omit if not specified,
-        "unit": "string — unit abbreviation from the unit reference below",
-        "ingredient_name": "string — canonical ingredient name from the canonical name list below",
-        "category": "string — shopping category from the category list below",
+        "unit": "string — unit from the unit reference below",
+        "ingredient_name": "string — canonical English name from the CANONICAL INGREDIENT NAMES list",
+        "category": "string — shopping category from the SHOPPING CATEGORIES list",
         "optional": boolean — true only if the recipe explicitly marks this as optional
       }
     ]
@@ -50,17 +52,17 @@ SCHEMA:
 RULES:
 1. Always output a JSON array, even for a single recipe.
 2. Set "status" to "active" for all recipes.
-3. For "ingredient_name", use the canonical form from the CANONICAL INGREDIENT NAMES section. If no match exists, use the simplest Norwegian noun form (singular, lowercase, no prep notes).
-4. "raw_text" is the original text from the recipe, including quantity, unit, and any prep notes (e.g. "1 gul løk, finhakket"). This is for traceability — keep it as close to the source as possible.
-5. "ingredient_name" strips away all prep notes, colours, and brand names. "rød paprika, skivet" → ingredient_name: "paprika".
+3. For "ingredient_name", use the canonical English form from the CANONICAL INGREDIENT NAMES section below. This is critical — the app uses these names to detect shared ingredients across recipes and suggest shopping consolidations.
+4. "raw_text" keeps the original text verbatim including quantity, unit, and prep notes (e.g. "1 yellow onion, finely chopped"). Do not clean it up.
+5. "ingredient_name" strips everything except the base ingredient: no quantity, no colour (unless it meaningfully changes the ingredient), no prep notes, no brand names. "finely chopped yellow onion" → "onion". "boneless skinless chicken breast" → "chicken". "Tine butter" → "butter".
 6. "category" must be exactly one value from the SHOPPING CATEGORIES list.
-7. Convert all quantities to decimal numbers (e.g. "½" → 0.5, "¼" → 0.25).
-8. Use Norwegian unit abbreviations from the UNITS section.
-9. Tags should be lowercase Norwegian words. Use tags from: pasta, ris, suppe, salat, kjøtt, fisk, kylling, vegetar, vegan, svin, lam, sjømat, asiatisk, italiensk, norsk, meksikansk, indisk, midt-østen, hurtigmat, hverdagsmat, helgemat, treg-koking, ovnsmat, grilling, baking, frukost.
-10. If the source recipe is in another language, translate instructions to Norwegian but keep ingredient raw_text in the original if it is clearer.
-11. If a quantity or unit is ambiguous, make a reasonable estimate and note it in raw_text with "(ca.)".
-12. If an ingredient cannot be identified, use your best judgement for ingredient_name and set category to "Annet".
-13. Do not invent ingredients that are not in the recipe.
+7. Convert all quantities to decimal numbers ("½" → 0.5, "¼" → 0.25).
+8. Use units from the UNITS section below.
+9. Tags should be lowercase English words, e.g.: pasta, rice, soup, salad, beef, fish, chicken, vegetarian, vegan, pork, lamb, seafood, asian, italian, norwegian, mexican, indian, middle-eastern, quick, weeknight, weekend, slow-cook, oven, grill, baking, breakfast.
+10. If a quantity or unit is ambiguous, make a reasonable estimate and note it in raw_text with "(approx.)".
+11. If an ingredient cannot be matched to the canonical list, use the simplest English noun form (singular, lowercase, no prep notes) and pick the closest category.
+12. Do not invent ingredients that are not in the recipe.
+13. Include salt and pepper when the recipe uses them — they affect shopping list accuracy.
 ```
 
 ---
@@ -77,8 +79,8 @@ RULES:
 | `prep_time_min` | integer | no | Active prep in minutes |
 | `cook_time_min` | integer | no | Cook/bake/simmer in minutes |
 | `status` | string | yes | Always `"active"` for GPT imports |
-| `tags` | string[] | no | Lowercase Norwegian tags |
-| `source_reference` | string | no | Book, website, or `"Hjemmelaget"` |
+| `tags` | string[] | no | Lowercase English tags |
+| `source_reference` | string | no | Book, website, or `"Home recipe"` |
 | `instructions` | string | no | Full numbered steps |
 | `ingredients` | array | yes | See ingredient fields below |
 
@@ -89,37 +91,35 @@ RULES:
 | `raw_text` | string | yes | Original text from recipe |
 | `quantity` | number | no | Numeric amount |
 | `unit` | string | no | From unit list below |
-| `ingredient_name` | string | yes | Canonical name — see list |
-| `category` | string | yes | Exact category from list |
+| `ingredient_name` | string | yes | Canonical name — see list below |
+| `category` | string | yes | Exact category from list below |
 | `optional` | boolean | no | Omit if false |
 
 ---
 
 ## Units
 
-Use these abbreviations consistently:
-
-| Norwegian | Abbreviation | Approx. metric |
+| Unit | Abbreviation | Approx. metric |
 |---|---|---|
 | gram | g | 1 g |
 | kilogram | kg | 1000 g |
-| desiliter | dl | 100 ml |
-| liter | l | 1000 ml |
-| milliliter | ml | 1 ml |
-| spiseskje | ss | 15 ml |
-| teskje | ts | 5 ml |
-| stykk | stk | — |
-| fedd (hvitløk) | fedd | — |
-| neve | neve | ~20–30 g |
-| boks | boks | typically 400 g |
-| pakke | pakke | check weight |
-| porsjon | porsjon | — |
-| klype | klype | pinch |
+| millilitre | ml | 1 ml |
+| decilitre | dl | 100 ml |
+| litre | l | 1000 ml |
+| tablespoon | tbsp | 15 ml |
+| teaspoon | tsp | 5 ml |
+| piece / whole | piece | — |
+| clove (garlic) | clove | — |
+| slice | slice | — |
+| handful | handful | ~25 g |
+| can | can | typically 400 g |
+| package | package | check weight |
+| pinch | pinch | — |
 
-**Common conversions from non-metric recipes:**
+**Common conversions from US recipes:**
 - 1 cup → 2.4 dl
-- 1 tablespoon → 1 ss
-- 1 teaspoon → 1 ts
+- 1 tablespoon → 1 tbsp
+- 1 teaspoon → 1 tsp
 - 1 oz → 28 g
 - 1 lb → 450 g
 - 1 pint → 4.7 dl
@@ -128,346 +128,331 @@ Use these abbreviations consistently:
 
 ## Shopping categories
 
-`ingredient_category` must be exactly one of these strings:
+`category` must be exactly one of these strings:
 
-- `Grønnsaker` — fresh vegetables, herbs (fresh)
-- `Kjøtt og fisk` — meat, poultry, fish, shellfish
-- `Meieri` — dairy (milk, cream, butter, cheese, eggs, yoghurt)
-- `Tørrvarer` — pasta, rice, flour, grains, legumes (dry), oats, nuts, seeds
-- `Hermetikk` — canned/jarred goods (tomatoes, beans, lentils, coconut milk, tuna, stock)
-- `Oljer og krydder` — oils, vinegars, sauces, dried spices, dried herbs, condiments
+- `Vegetables` — fresh vegetables, fresh herbs
+- `Meat & Fish` — meat, poultry, fish, shellfish
+- `Dairy` — milk, cream, butter, cheese, eggs, yogurt, sour cream
+- `Dry goods` — pasta, rice, flour, grains, dry legumes, oats, nuts, seeds
+- `Canned goods` — canned/jarred tomatoes, beans, coconut milk, stock, tuna
+- `Oils & Spices` — oils, vinegars, sauces, dry spices, dried herbs, condiments, wine for cooking
 - `Baking` — sugar, honey, baking powder, baking soda, yeast, chocolate, vanilla
-- `Frukt` — fresh fruit, berries
-- `Brød og bakevarer` — bread, wraps, tortillas, crackers
-- `Frysevarer` — frozen goods
-- `Annet` — anything that does not fit the above
+- `Fruit` — fresh fruit, berries
+- `Bread & Bakery` — bread, wraps, tortillas, crackers
+- `Frozen` — frozen goods
+- `Other` — anything that does not fit the above
 
 ---
 
 ## Canonical ingredient names
 
-Use these names for `ingredient_name`. They are the base forms used by the recommendation engine to identify overlap between recipes.
+Use these names for `ingredient_name`. They are the exact forms the recommendation and consolidation engines match against.
 
-### Grønnsaker — vegetables
+**Why this matters:** if one recipe uses `"chicken breast"` and another uses `"chicken thigh"`, the engine recognises both as `"chicken"` and counts them as the same ingredient — reducing what you need to buy. If one recipe uses `"shallot"` and another uses `"yellow onion"`, the consolidation engine detects they are interchangeable (via MISKG substitution data) and suggests using just one.
 
-**Alliums (løkfamilien)**
-- `løk` — gul løk, hvit løk, løk (general)
-- `rødløk` — rød løk
-- `sjalottløk`
-- `vårløk` — grønn løk, scallion
-- `hvitløk`
-- `purre`
+### Vegetables
 
-**Rotgrønnsaker**
-- `gulrot`
-- `potet`
-- `søtpotet`
-- `sellerirot`
-- `pastinakk`
-- `persillerot`
-- `rødbete`
-- `kålrabi`
+**Alliums**
+- `onion` — yellow onion, white onion, plain onion
+- `red onion`
+- `shallot`
+- `spring onion` — green onion, scallion
+- `garlic`
+- `leek`
 
-**Kålvekster (brassicas)**
-- `brokkoli`
-- `blomkål`
-- `kål` — hodekål, grønn kål
-- `rødkål`
-- `grønnkål` — kale
-- `rosenkål`
-- `kinakål`
-- `pak choi`
+**Root vegetables**
+- `carrot`
+- `potato`
+- `sweet potato`
+- `celeriac`
+- `parsnip`
+- `parsley root`
+- `beetroot`
+- `kohlrabi`
 
-**Nattskyggefamilien**
-- `tomat` — tomat, cherrytomater, cocktailtomater, druetomater
-- `paprika` — all colours: rød, gul, grønn, oransje paprika
-- `aubergine`
-- `chili` — frisk chili, rød chili, grønn chili
+**Brassicas**
+- `broccoli`
+- `cauliflower`
+- `cabbage` — green / white cabbage
+- `red cabbage`
+- `kale`
+- `brussels sprouts`
+- `chinese cabbage` — napa cabbage
+- `bok choy` — pak choi
 
-**Squash og gresskar**
-- `squash` — zucchini
-- `gresskar` — butternut squash, hokkaido
+**Nightshade**
+- `tomato` — regular tomatoes, vine tomatoes
+- `cherry tomato` — grape tomatoes, cocktail tomatoes
+- `bell pepper` — any colour: red, yellow, green, orange
+- `red bell pepper` — use when recipe specifies red only
+- `yellow bell pepper` — use when recipe specifies yellow only
+- `green bell pepper` — use when recipe specifies green only
+- `eggplant` — aubergine
+- `chili` — fresh chili, red chili, green chili, bird's eye
 
-**Bladgrønnsaker**
-- `spinat`
-- `bladsalat` — salat, romanosalat, isbergsalat
-- `ruccola`
-- `mangold`
+**Squash & cucumber**
+- `zucchini` — courgette
+- `pumpkin` — butternut squash, hokkaido, acorn squash
+- `cucumber`
 
-**Sopp**
-- `sjampinjong` — champignon, brun sjampinjong
-- `kantarell`
-- `sopp` — blandede sopper, annen sopp
+**Leafy greens**
+- `spinach`
+- `lettuce` — romaine, iceberg, mixed leaves
+- `arugula` — rocket
+- `swiss chard` — chard, mangold
+
+**Mushrooms**
+- `mushroom` — button mushroom, brown mushroom, cremini
+- `chanterelle`
 - `portobello`
 - `shiitake`
 
-**Andre grønnsaker**
-- `agurk`
-- `mais` — frisk mais, maiskolbe
-- `asparges`
-- `erter` — friske erter, sukkererter, snøerter
-- `bønner` — grønne bønner, haricots verts
-- `fennikel`
-- `selleri` — stangselleri
-- `avokado`
-- `mais`
-- `artisjokk`
+**Other vegetables**
+- `fennel`
+- `celery`
+- `asparagus`
+- `peas` — fresh peas, sugar snap peas, snow peas
+- `green beans` — haricots verts, French beans
+- `corn` — fresh corn, corn cob
+- `avocado`
+- `ginger` — fresh ginger root
 
-**Urter (friske)**
-- `persille`
+**Fresh herbs**
+- `parsley`
 - `dill`
-- `basilikum` — frisk basilikum
-- `koriander` — frisk koriander
-- `timian` — frisk timian
-- `rosmarin` — frisk rosmarin
-- `gressløk`
-- `mynte`
-- `oregano` — frisk oregano
+- `basil`
+- `cilantro` — fresh coriander
+- `thyme` — fresh thyme
+- `rosemary` — fresh rosemary
+- `chives`
+- `mint`
 
 ---
 
-### Kjøtt og fisk — meat, fish, poultry
+### Meat & Fish
 
-**Kylling**
-- `kylling` — hel kylling, kyllingfilet, kyllinglår, kyllingvinge, kyllinglårfilet
+**Chicken**
+- `chicken` — whole chicken, any cut including breast, thigh, drumstick, wings
+- `chicken breast` — use when recipe specifies breast only
+- `chicken thigh` — use when recipe specifies thigh/drumstick only
+- `chicken thigh fillet` — boneless thigh
+- `turkey`
 
-**Kalkun**
-- `kalkun`
-
-**Svinekjøtt**
-- `svinekjøtt` — svinefilet, svinekoteletter, svinenakke
+**Pork**
+- `pork` — pork loin, pork shoulder, generic pork cuts
+- `pork tenderloin`
+- `pork chop`
+- `pork neck`
 - `bacon`
-- `ribbe` — svineribbe
-- `pølse` — grillpølse, wienerpølse, lapskaus-pølse
+- `pork ribs` — spare ribs, baby back ribs
+- `sausage` — all fresh sausages
 
-**Storfekjøtt**
-- `biff` — entrecôte, indrefilet, ytrefilet
-- `oksekjøtt` — høyrygg, rundstek, bog
-- `kjøttdeig` — kjøttdeig, karbonadedeig (use this for all ground meat)
+**Ground meat**
+- `ground beef` — minced beef, hamburger meat, any ground/minced meat
 
-**Lammekjøtt**
-- `lammekjøtt` — lammekotelett, lammeribbe, lammebog, lammeskank, fårikålkjøtt
+**Beef**
+- `steak` — ribeye, sirloin, tenderloin, any steak cut
+- `beef` — beef stew meat, pot roast, chuck, braising cuts
+- `entrecote` — entrecôte, ribeye steak
 
-**Fisk**
-- `laks` — laksefilet, lakseloins, hel laks, røkt laks
-- `torsk` — torskefilet, skrei, klippfisk, bacalao
-- `sei` — seifilet
-- `ørret` — sjøørret, regnbueørret
-- `makrell` — fersk makrell
-- `hyse` — hyseskinn, hysefilet
-- `sild` — fersk sild, saltsild
-- `pangasius`
-- `tilapia`
-- `steinbit`
+**Lamb**
+- `lamb` — any lamb cut: chops, shoulder, leg, shank, rack
+- `lamb chop`
+- `lamb ribs`
+- `lamb shoulder`
 
-**Skalldyr**
-- `reker` — kokte reker, pillede reker, ferske reker
-- `kamskjell`
-- `blåskjell`
-- `krabbe` — kongekrabbe, taskekrabbe
-- `hummer`
+**Fish**
+- `salmon` — fresh salmon fillet, whole salmon
+- `salmon fillet`
+- `smoked salmon`
+- `cod` — fresh cod
+- `cod fillet`
+- `pollock` — saithe, coalfish
+- `pollock fillet`
+- `trout` — sea trout, rainbow trout
+- `mackerel`
+- `haddock`
+- `wolffish` — catfish (ocean)
+- `herring`
+
+**Shellfish**
+- `shrimp` — prawns, cooked or raw
+- `scallop`
+- `mussel`
+- `crab`
 
 ---
 
-### Meieri — dairy
+### Dairy
 
-**Smør og fett**
-- `smør` — usaltet smør, saltet smør
-- `margarin`
-
-**Melk**
-- `melk` — helmelk, lettmelk, skummet melk, laktosefri melk
-
-**Fløte**
-- `fløte` — kremfløte, matfløte, kokefløte (35% or less)
-
-**Sur fløte**
-- `rømme` — lettrømme, seterrømme
-- `crème fraîche`
-- `kesam`
-- `yoghurt` — gresk yoghurt, naturell yoghurt
-
-**Ost**
-- `ost` — norsk hvitost (generic)
-- `hvitost` — Jarlsberg, Norvegia, Gouda
-- `brunost` — Gudbrandsdalsost, Fløtemysost
+- `butter` — salted or unsalted
+- `margarine`
+- `milk` — whole milk, semi-skimmed, skimmed
+- `whole milk`
+- `low-fat milk`
+- `cream` — heavy cream, double cream
+- `heavy cream`
+- `cooking cream` — single cream, half and half
+- `sour cream`
+- `creme fraiche`
+- `yogurt` — plain, Greek yogurt
+- `cottage cheese`
+- `cheese` — generic / unspecified cheese
+- `white cheese` — Norwegian-style mild cheese (Jarlsberg, Norvegia, Gouda)
+- `brunost` — Norwegian brown cheese (no substitution)
 - `parmesan` — parmigiano reggiano, grana padano
-- `fetaost`
-- `mozzarella` — frisk mozzarella, revet mozzarella
+- `feta`
+- `mozzarella` — fresh or shredded
 - `cheddar`
-- `kremost` — Philadelphia, naturell kremost
+- `cream cheese` — Philadelphia-style
 - `ricotta`
 - `mascarpone`
-
-**Egg**
-- `egg` — store egg, medium egg
+- `egg`
 
 ---
 
-### Tørrvarer — dry goods
+### Dry goods
 
-**Mel**
-- `hvetemel`
-- `sammalt hvete` — grovt hvetemel
-- `rugmel`
-- `maisenna` — maisstivelse, maizena
-- `potetmel`
+**Flour**
+- `flour` — plain flour, all-purpose flour
+- `wheat flour` — strong flour, bread flour
+- `whole wheat flour` — wholemeal flour
+- `rye flour`
+- `cornstarch` — cornflour, maizena
+- `potato starch`
 
 **Pasta**
-- `pasta` — all pasta shapes: spaghetti, penne, fusilli, tagliatelle, rigatoni, farfalle, etc.
-- `lasagneplater`
-- `nudler` — egg-nudler, risnudler, glassnudler, udon, soba
+- `pasta` — use for all shapes when shape doesn't matter
+- `spaghetti`
+- `penne`
+- `fusilli`
+- `tagliatelle`
+- `rigatoni`
+- `lasagna sheets`
+- `noodles` — egg noodles, udon, soba, glass noodles
+- `rice noodles`
 
-**Ris og korn**
-- `ris` — basmatiris, jasminris, kortkornet ris, sushiris
-- `risotto-ris` — arborio, carnaroli
+**Rice & grains**
+- `rice` — general rice, white rice, short grain
+- `basmati rice`
+- `jasmine rice`
+- `risotto rice` — arborio, carnaroli
 - `couscous`
 - `bulgur`
 - `quinoa`
-- `havregryn`
-- `bygggryn`
+- `oats` — rolled oats, porridge oats
+- `pearl barley`
 
-**Tørre belgfrukter**
-- `røde linser`
-- `grønne linser`
-- `belugalinser`
-- `kikærter` — tørre
-- `gule erter`
-
-**Nøtter og frø**
-- `pinjekjerner`
-- `mandler`
-- `valnøtter`
-- `cashewnøtter`
-- `sesamfrø`
-- `gresskarfrø`
-- `solsikkekjerner`
+**Dry legumes**
+- `red lentils`
+- `green lentils`
+- `black lentils` — beluga lentils
+- `chickpeas` — dry
+- `kidney beans` — dry; use `"Dry goods"` for dry, `"Canned goods"` for canned
 
 ---
 
-### Hermetikk — canned and jarred
+### Canned goods
 
-- `hermetiske tomater` — hele flådde tomater, hakkede tomater, polpa
-- `tomatpuré` — konsentrert tomatpuré (tube or can)
-- `kokosmelk` — full-fat or light
-- `kikærter` — hermetiske kikærter
-- `kidneybønner`
-- `cannellinibønner`
-- `bønner` — hermetiske, mixed
-- `hermetiske linser`
-- `tun` — hermetisk tun i vann eller olje
-- `makrell i tomat`
-- `maiskjerner` — hermetisk mais
-- `kyllingkraft` — buljong, fond
-- `grønnsakskraft`
-- `okse-/kjøttkraft`
-- `fiskekraft`
-- `soltørket tomat`
-- `oliven` — grønne, svarte
-- `kapers`
-- `ansjos`
+- `canned tomatoes` — whole peeled, chopped, crushed, polpa
+- `chopped tomatoes` — use when recipe specifies chopped
+- `tomato paste` — concentrated tomato purée
+- `sun-dried tomato`
+- `coconut milk` — full fat or light
+- `coconut cream`
+- `chicken stock` — chicken broth, chicken bouillon
+- `vegetable stock` — vegetable broth
+- `beef stock` — beef broth, beef bouillon
+- `fish stock`
+- `stock cube` — bouillon cube, any flavour
+- `kidney beans` — canned
+- `cannellini beans` — white beans, canned
+- `canned lentils`
+- `canned chickpeas`
 
 ---
 
-### Oljer og krydder — oils, spices, sauces
+### Oils & Spices
 
-**Oljer**
-- `olivenolje`
-- `rapsolje`
-- `solsikkeolje`
-- `sesamolje` — ristet, for finishing
-- `kokosolje`
+**Oils**
+- `olive oil`
+- `canola oil` — rapeseed oil, neutral vegetable oil
+- `sunflower oil`
+- `sesame oil` — toasted, for finishing
+- `coconut oil`
 
-**Eddik**
-- `hvitvinseddik`
-- `rødvinseddik`
-- `balsamicoeddik`
-- `eplesidereddik`
-- `riseddik`
+**Vinegar & acid**
+- `white wine vinegar`
+- `red wine vinegar`
+- `balsamic vinegar`
+- `apple cider vinegar`
+- `rice vinegar`
+- `lemon juice`
+- `lime juice`
 
-**Sauser og smakstilsetninger**
-- `soyasaus` — lys, mørk, tamari
-- `fiskesaus` — nam pla, nuoc mam
-- `østerssaus`
-- `hoisinsaus`
-- `worcestershiresaus`
-- `tabasco`
-- `harissa`
+**Sauces & condiments**
+- `soy sauce` — light, dark, or tamari
+- `fish sauce`
+- `oyster sauce`
+- `hoisin sauce`
+- `worcestershire sauce`
+- `dijon mustard`
+- `whole grain mustard`
 - `tahini`
-- `pesto` — grønn, rød
-- `dijonsennep`
-- `grovkornet sennep`
-- `ketchup`
-- `majones`
+- `harissa`
 
-**Vin (til matlaging)**
-- `rødvin`
-- `hvitvin`
-- `portvin`
-- `sherry`
+**Wine for cooking**
+- `red wine`
+- `white wine`
 
-**Tørre krydder og urter**
-- `paprikapulver` — søt paprika
-- `røkt paprika` — røkt paprikapulver
-- `karri` — karripulver
-- `gurkemeie`
-- `spisskummen` — cumin, malt eller hel
-- `koriander` — malt koriander (not fresh)
+**Dry spices**
+- `salt`
+- `pepper` — black or white pepper, ground or whole
+- `paprika` — sweet paprika powder
+- `smoked paprika`
+- `curry powder`
+- `turmeric`
+- `cumin`
+- `coriander powder` — ground coriander (not fresh)
 - `garam masala`
 - `ras el hanout`
-- `kanel`
-- `kardemomme`
-- `nellik`
-- `muskatnøtt`
-- `allehånde`
-- `chili` — chilipulver, cayennepepper, chilifnugg
-- `ingefær` — malt ingefær (not fresh)
-- `timian` — tørket timian
-- `oregano` — tørket oregano
-- `basilikum` — tørket basilikum
-- `rosmarin` — tørket rosmarin
-- `laurbærblad`
-- `pepper` — sort pepper, hvit pepper, malt eller hel
-- `salt` — fint salt, grovt salt, havsalt, flaksalt
-
-**Tilsetningsstoffer**
-- `bakepulver`
-- `natron`
-- `gjær` — tørrgjær, fersk gjær
-- `gelatin` — gelatinplater, gelatin-pulver
+- `chili powder`
+- `chili flakes` — dried chili flakes, red pepper flakes
+- `cayenne`
+- `cinnamon`
+- `cardamom`
+- `nutmeg`
+- `allspice`
+- `ginger powder` — ground ginger (not fresh)
+- `bay leaf`
+- `dried thyme`
+- `dried oregano`
 
 ---
 
 ### Baking
 
-- `sukker` — hvitt sukker, strøsukker
-- `brunt sukker` — lyst og mørkt
-- `melis` — flormelis
-- `honning`
-- `lønnesirup`
-- `sirup` — lys sirup, mørk sirup
-- `vanilje` — vaniljesukker, vaniljeekstrakt, vaniljestang
-- `sjokolade` — mørk sjokolade, melkesjokolade, sjokoladebiter
-- `kakao` — kakaopulver, usøtet
-- `mandelmel`
-- `kokosmasse`
+- `sugar` — white sugar, caster sugar
+- `brown sugar` — light or dark brown sugar
+- `honey`
+- `maple syrup`
+- `baking powder`
+- `baking soda` — bicarbonate of soda
+- `yeast` — dried or fresh
+- `vanilla` — vanilla extract, vanilla bean, vanilla sugar
+- `vanilla sugar`
+- `chocolate` — dark, milk, or white chocolate
+- `cocoa powder` — unsweetened cocoa
 
 ---
 
-### Frukt
+### Fruit
 
-- `sitron` — hel sitron, sitronsaft, sitronskall
-- `lime` — hel lime, limesaft, limeskall
-- `appelsin`
+- `lemon`
+- `lime`
+- `orange`
 - `mango`
-- `ananas`
-- `banan`
-- `eple`
-- `pære`
-- `jordbær`
-- `bringebær`
-- `blåbær`
-- `granateple`
+- `pineapple`
 
 ---
 
@@ -479,124 +464,124 @@ Use these names for `ingredient_name`. They are the base forms used by the recom
 [
   {
     "title": "Pasta Bolognese",
-    "description": "Klassisk italiensk kjøttsaus med spaghetti",
+    "description": "Classic Italian meat sauce with spaghetti",
     "default_servings": 4,
     "prep_time_min": 15,
     "cook_time_min": 45,
     "status": "active",
-    "tags": ["pasta", "kjøtt", "italiensk", "hverdagsmat"],
-    "source_reference": "Hjemmelaget",
-    "instructions": "1. Finhakk løk, gulrot og selleri. Fres i olivenolje på middels varme i 10 min.\n2. Tilsett hvitløk og fres 1 min til.\n3. Øk varmen og tilsett kjøttdeig. Brun godt, ca. 8 min.\n4. Tilsett tomatpuré og rør inn. Fres 2 min.\n5. Hell i rødvin og la koke inn halvparten.\n6. Tilsett hermetiske tomater og buljong. Rør godt.\n7. La sausen koke på lav varme i 30 min. Smak til med salt og pepper.\n8. Kok pasta etter anvisning. Server med revet parmesan.",
+    "tags": ["pasta", "beef", "italian", "weeknight"],
+    "source_reference": "Home recipe",
+    "instructions": "1. Finely dice onion, carrot and celery. Sauté in olive oil over medium heat for 10 min.\n2. Add garlic, cook 1 min.\n3. Increase heat, add ground beef and brown well, about 8 min.\n4. Stir in tomato paste, cook 2 min.\n5. Add red wine and reduce by half.\n6. Add canned tomatoes and stock. Stir well.\n7. Simmer on low heat for 30 min. Season with salt and pepper.\n8. Cook pasta according to package. Serve with grated parmesan.",
     "ingredients": [
-      { "raw_text": "500 g kjøttdeig", "quantity": 500, "unit": "g", "ingredient_name": "kjøttdeig", "category": "Kjøtt og fisk" },
-      { "raw_text": "1 gul løk, finhakket", "quantity": 1, "unit": "stk", "ingredient_name": "løk", "category": "Grønnsaker" },
-      { "raw_text": "2 fedd hvitløk, presset", "quantity": 2, "unit": "fedd", "ingredient_name": "hvitløk", "category": "Grønnsaker" },
-      { "raw_text": "1 gulrot, finhakket", "quantity": 1, "unit": "stk", "ingredient_name": "gulrot", "category": "Grønnsaker" },
-      { "raw_text": "2 stenger selleri, finhakket", "quantity": 2, "unit": "stk", "ingredient_name": "selleri", "category": "Grønnsaker" },
-      { "raw_text": "2 ss tomatpuré", "quantity": 2, "unit": "ss", "ingredient_name": "tomatpuré", "category": "Hermetikk" },
-      { "raw_text": "1 boks (400 g) hakkede tomater", "quantity": 400, "unit": "g", "ingredient_name": "hermetiske tomater", "category": "Hermetikk" },
-      { "raw_text": "1 dl rødvin", "quantity": 1, "unit": "dl", "ingredient_name": "rødvin", "category": "Oljer og krydder" },
-      { "raw_text": "1 dl kyllingkraft", "quantity": 1, "unit": "dl", "ingredient_name": "kyllingkraft", "category": "Hermetikk" },
-      { "raw_text": "2 ss olivenolje", "quantity": 2, "unit": "ss", "ingredient_name": "olivenolje", "category": "Oljer og krydder" },
-      { "raw_text": "400 g spaghetti", "quantity": 400, "unit": "g", "ingredient_name": "pasta", "category": "Tørrvarer" },
-      { "raw_text": "50 g revet parmesan", "quantity": 50, "unit": "g", "ingredient_name": "parmesan", "category": "Meieri" },
-      { "raw_text": "salt og pepper etter smak", "ingredient_name": "salt", "category": "Oljer og krydder" },
-      { "raw_text": "pepper", "ingredient_name": "pepper", "category": "Oljer og krydder" }
+      { "raw_text": "500 g ground beef", "quantity": 500, "unit": "g", "ingredient_name": "ground beef", "category": "Meat & Fish" },
+      { "raw_text": "1 yellow onion, finely chopped", "quantity": 1, "unit": "piece", "ingredient_name": "onion", "category": "Vegetables" },
+      { "raw_text": "2 cloves garlic, crushed", "quantity": 2, "unit": "clove", "ingredient_name": "garlic", "category": "Vegetables" },
+      { "raw_text": "1 carrot, finely diced", "quantity": 1, "unit": "piece", "ingredient_name": "carrot", "category": "Vegetables" },
+      { "raw_text": "2 stalks celery, finely diced", "quantity": 2, "unit": "piece", "ingredient_name": "celery", "category": "Vegetables" },
+      { "raw_text": "2 tbsp tomato paste", "quantity": 2, "unit": "tbsp", "ingredient_name": "tomato paste", "category": "Canned goods" },
+      { "raw_text": "1 can (400 g) chopped tomatoes", "quantity": 400, "unit": "g", "ingredient_name": "canned tomatoes", "category": "Canned goods" },
+      { "raw_text": "1 dl red wine", "quantity": 1, "unit": "dl", "ingredient_name": "red wine", "category": "Oils & Spices" },
+      { "raw_text": "1 dl chicken stock", "quantity": 1, "unit": "dl", "ingredient_name": "chicken stock", "category": "Canned goods" },
+      { "raw_text": "2 tbsp olive oil", "quantity": 2, "unit": "tbsp", "ingredient_name": "olive oil", "category": "Oils & Spices" },
+      { "raw_text": "400 g spaghetti", "quantity": 400, "unit": "g", "ingredient_name": "spaghetti", "category": "Dry goods" },
+      { "raw_text": "50 g grated parmesan", "quantity": 50, "unit": "g", "ingredient_name": "parmesan", "category": "Dairy" },
+      { "raw_text": "salt and pepper to taste", "ingredient_name": "salt", "category": "Oils & Spices" },
+      { "raw_text": "pepper", "ingredient_name": "pepper", "category": "Oils & Spices" }
     ]
   }
 ]
 ```
 
-### Example 2 — Thai grønn curry med kylling
+### Example 2 — Thai Green Chicken Curry
 
 ```json
 [
   {
-    "title": "Thai grønn curry med kylling",
-    "description": "Rask og smakfull thai-curry med kokosmelk",
+    "title": "Thai Green Chicken Curry",
+    "description": "Quick and flavourful Thai curry with coconut milk",
     "default_servings": 4,
     "prep_time_min": 10,
     "cook_time_min": 20,
     "status": "active",
-    "tags": ["kylling", "asiatisk", "hurtigmat", "hverdagsmat"],
-    "source_reference": "Hjemmelaget",
-    "instructions": "1. Skjær kyllingfilet i biter. Stek i olje på høy varme til gyllent. Ta ut.\n2. Fres grønn currypaste i samme panne, 1–2 min.\n3. Hell i kokosmelk og fiskesaus. Kok opp.\n4. Tilsett kylling, paprika og sukkererter. Kok 8–10 min.\n5. Smak til med limesaft og sukker. Server med jasminris og frisk koriander.",
+    "tags": ["chicken", "asian", "quick", "weeknight"],
+    "source_reference": "Home recipe",
+    "instructions": "1. Cut chicken into pieces. Fry in oil over high heat until golden. Remove.\n2. Fry green curry paste in the same pan, 1–2 min.\n3. Add coconut milk and fish sauce. Bring to a boil.\n4. Add chicken, bell pepper and sugar snap peas. Simmer 8–10 min.\n5. Season with lime juice and sugar. Serve with jasmine rice and fresh cilantro.",
     "ingredients": [
-      { "raw_text": "600 g kyllingfilet, i biter", "quantity": 600, "unit": "g", "ingredient_name": "kylling", "category": "Kjøtt og fisk" },
-      { "raw_text": "2–3 ss grønn currypaste", "quantity": 2.5, "unit": "ss", "ingredient_name": "grønn currypaste", "category": "Oljer og krydder" },
-      { "raw_text": "1 boks (400 ml) kokosmelk", "quantity": 4, "unit": "dl", "ingredient_name": "kokosmelk", "category": "Hermetikk" },
-      { "raw_text": "2 ss fiskesaus", "quantity": 2, "unit": "ss", "ingredient_name": "fiskesaus", "category": "Oljer og krydder" },
-      { "raw_text": "1 rød paprika, i strimler", "quantity": 1, "unit": "stk", "ingredient_name": "paprika", "category": "Grønnsaker" },
-      { "raw_text": "150 g sukkererter", "quantity": 150, "unit": "g", "ingredient_name": "erter", "category": "Grønnsaker" },
-      { "raw_text": "saft av 1 lime", "quantity": 1, "unit": "stk", "ingredient_name": "lime", "category": "Frukt" },
-      { "raw_text": "1 ts sukker", "quantity": 1, "unit": "ts", "ingredient_name": "sukker", "category": "Baking" },
-      { "raw_text": "1 ss rapsolje", "quantity": 1, "unit": "ss", "ingredient_name": "rapsolje", "category": "Oljer og krydder" },
-      { "raw_text": "300 g jasminris", "quantity": 300, "unit": "g", "ingredient_name": "ris", "category": "Tørrvarer" },
-      { "raw_text": "frisk koriander til servering", "ingredient_name": "koriander", "category": "Grønnsaker", "optional": true }
+      { "raw_text": "600 g chicken breast, cut into pieces", "quantity": 600, "unit": "g", "ingredient_name": "chicken breast", "category": "Meat & Fish" },
+      { "raw_text": "2–3 tbsp green curry paste", "quantity": 2.5, "unit": "tbsp", "ingredient_name": "green curry paste", "category": "Oils & Spices" },
+      { "raw_text": "1 can (400 ml) coconut milk", "quantity": 4, "unit": "dl", "ingredient_name": "coconut milk", "category": "Canned goods" },
+      { "raw_text": "2 tbsp fish sauce", "quantity": 2, "unit": "tbsp", "ingredient_name": "fish sauce", "category": "Oils & Spices" },
+      { "raw_text": "1 red bell pepper, sliced", "quantity": 1, "unit": "piece", "ingredient_name": "red bell pepper", "category": "Vegetables" },
+      { "raw_text": "150 g sugar snap peas", "quantity": 150, "unit": "g", "ingredient_name": "peas", "category": "Vegetables" },
+      { "raw_text": "juice of 1 lime", "quantity": 1, "unit": "piece", "ingredient_name": "lime", "category": "Fruit" },
+      { "raw_text": "1 tsp sugar", "quantity": 1, "unit": "tsp", "ingredient_name": "sugar", "category": "Baking" },
+      { "raw_text": "1 tbsp canola oil", "quantity": 1, "unit": "tbsp", "ingredient_name": "canola oil", "category": "Oils & Spices" },
+      { "raw_text": "300 g jasmine rice", "quantity": 300, "unit": "g", "ingredient_name": "jasmine rice", "category": "Dry goods" },
+      { "raw_text": "fresh cilantro to serve", "ingredient_name": "cilantro", "category": "Vegetables", "optional": true }
     ]
   }
 ]
 ```
 
-### Example 3 — Laksegryte med fennikel
+### Example 3 — Salmon and Fennel Stew
 
 ```json
 [
   {
-    "title": "Laksegryte med fennikel og fløte",
-    "description": "Kremet laksegryte med norsk fisk",
+    "title": "Creamy Salmon and Fennel Stew",
+    "description": "Creamy fish stew with fresh salmon and fennel",
     "default_servings": 2,
     "prep_time_min": 10,
     "cook_time_min": 20,
     "status": "active",
-    "tags": ["fisk", "laks", "norsk", "hverdagsmat"],
-    "source_reference": "Hjemmelaget",
-    "instructions": "1. Skjær fennikel og purre i tynne skiver. Fres i smør til mykt, ca. 8 min.\n2. Tilsett hvitvin og la koke inn 2 min.\n3. Hell i fiskekraft og fløte. Kok opp.\n4. Legg i laksebitene og kok 5–6 min til fisken er gjennomstekt.\n5. Smak til med sitronsaft, salt og pepper. Pynt med dill. Server med godt brød.",
+    "tags": ["fish", "salmon", "norwegian", "weeknight"],
+    "source_reference": "Home recipe",
+    "instructions": "1. Slice fennel and leek thinly. Sauté in butter until soft, about 8 min.\n2. Add white wine and reduce for 2 min.\n3. Pour in fish stock and cream. Bring to a boil.\n4. Add salmon pieces and simmer 5–6 min until cooked through.\n5. Season with lemon juice, salt and pepper. Garnish with dill. Serve with good bread.",
     "ingredients": [
-      { "raw_text": "400 g laksefilet, i biter", "quantity": 400, "unit": "g", "ingredient_name": "laks", "category": "Kjøtt og fisk" },
-      { "raw_text": "1 fennikel, i tynne skiver", "quantity": 1, "unit": "stk", "ingredient_name": "fennikel", "category": "Grønnsaker" },
-      { "raw_text": "1 purre, i ringer", "quantity": 1, "unit": "stk", "ingredient_name": "purre", "category": "Grønnsaker" },
-      { "raw_text": "2 dl matfløte", "quantity": 2, "unit": "dl", "ingredient_name": "fløte", "category": "Meieri" },
-      { "raw_text": "1 dl hvitvin", "quantity": 1, "unit": "dl", "ingredient_name": "hvitvin", "category": "Oljer og krydder" },
-      { "raw_text": "1 dl fiskekraft", "quantity": 1, "unit": "dl", "ingredient_name": "fiskekraft", "category": "Hermetikk" },
-      { "raw_text": "1 ss smør", "quantity": 1, "unit": "ss", "ingredient_name": "smør", "category": "Meieri" },
-      { "raw_text": "saft av ½ sitron", "quantity": 0.5, "unit": "stk", "ingredient_name": "sitron", "category": "Frukt" },
-      { "raw_text": "frisk dill til servering", "ingredient_name": "dill", "category": "Grønnsaker", "optional": true },
-      { "raw_text": "salt og pepper", "ingredient_name": "salt", "category": "Oljer og krydder" },
-      { "raw_text": "pepper", "ingredient_name": "pepper", "category": "Oljer og krydder" }
+      { "raw_text": "400 g salmon fillet, cut into pieces", "quantity": 400, "unit": "g", "ingredient_name": "salmon fillet", "category": "Meat & Fish" },
+      { "raw_text": "1 fennel bulb, thinly sliced", "quantity": 1, "unit": "piece", "ingredient_name": "fennel", "category": "Vegetables" },
+      { "raw_text": "1 leek, sliced into rings", "quantity": 1, "unit": "piece", "ingredient_name": "leek", "category": "Vegetables" },
+      { "raw_text": "2 dl cooking cream", "quantity": 2, "unit": "dl", "ingredient_name": "cooking cream", "category": "Dairy" },
+      { "raw_text": "1 dl white wine", "quantity": 1, "unit": "dl", "ingredient_name": "white wine", "category": "Oils & Spices" },
+      { "raw_text": "1 dl fish stock", "quantity": 1, "unit": "dl", "ingredient_name": "fish stock", "category": "Canned goods" },
+      { "raw_text": "1 tbsp butter", "quantity": 1, "unit": "tbsp", "ingredient_name": "butter", "category": "Dairy" },
+      { "raw_text": "juice of ½ lemon", "quantity": 0.5, "unit": "piece", "ingredient_name": "lemon", "category": "Fruit" },
+      { "raw_text": "fresh dill to serve", "ingredient_name": "dill", "category": "Vegetables", "optional": true },
+      { "raw_text": "salt and pepper", "ingredient_name": "salt", "category": "Oils & Spices" },
+      { "raw_text": "pepper", "ingredient_name": "pepper", "category": "Oils & Spices" }
     ]
   }
 ]
 ```
 
-### Example 4 — Vegetarisk linsesuppe
+### Example 4 — Red Lentil Soup
 
 ```json
 [
   {
-    "title": "Rød linsesuppe med kokosmelk",
-    "description": "Mettende vegetarisk suppe med varme krydder",
+    "title": "Red Lentil Soup with Coconut Milk",
+    "description": "Hearty vegan soup with warm spices",
     "default_servings": 4,
     "prep_time_min": 10,
     "cook_time_min": 25,
     "status": "active",
-    "tags": ["vegetar", "vegan", "suppe", "hverdagsmat", "indisk"],
-    "source_reference": "Hjemmelaget",
-    "instructions": "1. Fres løk i olje til myk. Tilsett hvitløk og ingefær, fres 1 min.\n2. Tilsett karri, gurkemeie og spisskummen. Rør inn og fres 1 min.\n3. Tilsett linser, hermetiske tomater, kokosmelk og vann.\n4. Kok opp, senk varmen og kok i 20 min til linser er møre.\n5. Smak til med sitronsaft, salt og pepper. Server med naanbrød og frisk koriander.",
+    "tags": ["vegetarian", "vegan", "soup", "weeknight", "indian"],
+    "source_reference": "Home recipe",
+    "instructions": "1. Sauté onion in oil until soft. Add garlic and ginger, cook 1 min.\n2. Add curry powder, turmeric and cumin. Stir and cook 1 min.\n3. Add lentils, canned tomatoes, coconut milk and 2 dl water.\n4. Bring to a boil, reduce heat and simmer 20 min until lentils are soft.\n5. Season with lemon juice, salt and pepper. Serve with naan and fresh cilantro.",
     "ingredients": [
-      { "raw_text": "250 g røde linser, skylt", "quantity": 250, "unit": "g", "ingredient_name": "røde linser", "category": "Tørrvarer" },
-      { "raw_text": "1 gul løk, finhakket", "quantity": 1, "unit": "stk", "ingredient_name": "løk", "category": "Grønnsaker" },
-      { "raw_text": "3 fedd hvitløk, presset", "quantity": 3, "unit": "fedd", "ingredient_name": "hvitløk", "category": "Grønnsaker" },
-      { "raw_text": "2 cm ingefær, revet", "quantity": 2, "unit": "g", "ingredient_name": "ingefær", "category": "Grønnsaker" },
-      { "raw_text": "1 boks (400 g) hakkede tomater", "quantity": 400, "unit": "g", "ingredient_name": "hermetiske tomater", "category": "Hermetikk" },
-      { "raw_text": "1 boks (400 ml) kokosmelk", "quantity": 4, "unit": "dl", "ingredient_name": "kokosmelk", "category": "Hermetikk" },
-      { "raw_text": "2 ts karripulver", "quantity": 2, "unit": "ts", "ingredient_name": "karri", "category": "Oljer og krydder" },
-      { "raw_text": "1 ts gurkemeie", "quantity": 1, "unit": "ts", "ingredient_name": "gurkemeie", "category": "Oljer og krydder" },
-      { "raw_text": "1 ts malt spisskummen", "quantity": 1, "unit": "ts", "ingredient_name": "spisskummen", "category": "Oljer og krydder" },
-      { "raw_text": "2 ss rapsolje", "quantity": 2, "unit": "ss", "ingredient_name": "rapsolje", "category": "Oljer og krydder" },
-      { "raw_text": "saft av 1 sitron", "quantity": 1, "unit": "stk", "ingredient_name": "sitron", "category": "Frukt" },
-      { "raw_text": "frisk koriander til servering", "ingredient_name": "koriander", "category": "Grønnsaker", "optional": true },
-      { "raw_text": "salt og pepper", "ingredient_name": "salt", "category": "Oljer og krydder" }
+      { "raw_text": "250 g red lentils, rinsed", "quantity": 250, "unit": "g", "ingredient_name": "red lentils", "category": "Dry goods" },
+      { "raw_text": "1 yellow onion, finely chopped", "quantity": 1, "unit": "piece", "ingredient_name": "onion", "category": "Vegetables" },
+      { "raw_text": "3 cloves garlic, crushed", "quantity": 3, "unit": "clove", "ingredient_name": "garlic", "category": "Vegetables" },
+      { "raw_text": "2 cm fresh ginger, grated", "quantity": 20, "unit": "g", "ingredient_name": "ginger", "category": "Vegetables" },
+      { "raw_text": "1 can (400 g) chopped tomatoes", "quantity": 400, "unit": "g", "ingredient_name": "canned tomatoes", "category": "Canned goods" },
+      { "raw_text": "1 can (400 ml) coconut milk", "quantity": 4, "unit": "dl", "ingredient_name": "coconut milk", "category": "Canned goods" },
+      { "raw_text": "2 tsp curry powder", "quantity": 2, "unit": "tsp", "ingredient_name": "curry powder", "category": "Oils & Spices" },
+      { "raw_text": "1 tsp turmeric", "quantity": 1, "unit": "tsp", "ingredient_name": "turmeric", "category": "Oils & Spices" },
+      { "raw_text": "1 tsp ground cumin", "quantity": 1, "unit": "tsp", "ingredient_name": "cumin", "category": "Oils & Spices" },
+      { "raw_text": "2 tbsp canola oil", "quantity": 2, "unit": "tbsp", "ingredient_name": "canola oil", "category": "Oils & Spices" },
+      { "raw_text": "juice of 1 lemon", "quantity": 1, "unit": "piece", "ingredient_name": "lemon", "category": "Fruit" },
+      { "raw_text": "fresh cilantro to serve", "ingredient_name": "cilantro", "category": "Vegetables", "optional": true },
+      { "raw_text": "salt and pepper", "ingredient_name": "salt", "category": "Oils & Spices" }
     ]
   }
 ]
@@ -608,13 +593,14 @@ Use these names for `ingredient_name`. They are the base forms used by the recom
 
 | Mistake | Correct approach |
 |---|---|
-| `"ingredient_name": "1 gul løk, finhakket"` | Use just `"løk"` — no quantity, no prep notes |
-| `"ingredient_name": "Tine smør"` | Strip brand names → `"smør"` |
+| `"ingredient_name": "1 finely chopped yellow onion"` | Use just `"onion"` — no quantity, no prep notes |
+| `"ingredient_name": "Tine butter"` | Strip brand names → `"butter"` |
 | `"unit": "cup"` | Convert to `dl` |
 | `"quantity": "½"` | Write as `0.5` |
-| `"category": "vegetables"` | Must be Norwegian: `"Grønnsaker"` |
-| Separate entries for rød, gul, grønn paprika | All use `"ingredient_name": "paprika"` |
-| `"ingredient_name": "kyllingfilet"` | Use `"kylling"` — the protein, not the cut |
-| Forgetting salt and pepper | Include them — they affect shopping list accuracy |
+| `"category": "Vegetables"` spelled wrong | Must exactly match the category list |
+| Separate entries for red, yellow, green bell pepper | All use `"ingredient_name": "bell pepper"` unless colour matters for shopping |
+| `"ingredient_name": "boneless skinless chicken breast"` | Use `"chicken breast"` — the cut, not the full description |
+| `"ingredient_name": "chicken thigh fillet"` vs `"chicken"` | Use the specific cut if it matters for shopping; `"chicken"` for generic |
+| Forgetting salt and pepper | Include them — they appear on the shopping list |
 | `"optional": false` | Omit the field entirely when not optional |
-| Using a category not in the list | Use `"Annet"` if nothing fits |
+| Using a category not in the list | Use `"Other"` if nothing fits |

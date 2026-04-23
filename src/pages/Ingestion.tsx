@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { db } from '../db/db'
 import type { Recipe, Ingredient, RecipeIngredient } from '../db/types'
-import { seedNorwegianIngredients } from '../data/norwegianIngredients'
+import { seedNorwegianIngredients } from '../data/ingredientLibrary'
 import Button from '../components/ui/Button'
 
 // ── JSON import ───────────────────────────────────────────────────────────────
@@ -276,23 +276,24 @@ function SeedTab() {
   return (
     <div className="space-y-4">
       <p className="text-sm text-gray-600">
-        Load the Norwegian ingredient library into the database. This pre-populates ~170 common Norwegian ingredients
-        with canonical names, normalized forms, ingredient families, and shopping categories.
+        Load the ingredient library into the database. This pre-populates ~170 common ingredients
+        with English canonical names, normalized forms, ingredient families, and shopping categories.
+        Each ingredient is linked to the MISKG dataset for future nutrition and flavour data.
       </p>
       <p className="text-sm text-gray-600">
         The recommendation engine uses <strong>normalized names</strong> and <strong>ingredient families</strong> to
         detect overlap between recipes at three levels:
       </p>
       <ul className="text-sm text-gray-600 list-disc pl-5 space-y-1">
-        <li><strong>Exact</strong> — same ingredient (e.g. <em>løk</em> in two recipes) — full credit</li>
-        <li><strong>Normalized</strong> — different form of the same ingredient (e.g. <em>rødløk</em> vs <em>gul løk</em>, both normalize to <em>løk</em>) — 80% credit</li>
-        <li><strong>Family</strong> — same culinary family (e.g. <em>brokkoli</em> vs <em>blomkål</em>, both <em>kålvekst</em>) — 40% credit</li>
+        <li><strong>Exact</strong> — same ingredient (e.g. <em>onion</em> in two recipes) — full credit</li>
+        <li><strong>Normalized</strong> — different form of the same ingredient (e.g. <em>red onion</em> vs <em>yellow onion</em>, both normalize to <em>onion</em>) — 80% credit</li>
+        <li><strong>Family</strong> — same culinary family (e.g. <em>broccoli</em> vs <em>cauliflower</em>, both <em>brassica</em>) — 40% credit</li>
       </ul>
       <p className="text-sm text-gray-500">
         Already-seeded ingredients are skipped. Safe to run multiple times.
       </p>
       <Button onClick={doSeed} disabled={loading}>
-        {loading ? 'Seeding…' : 'Seed Norwegian ingredient library'}
+        {loading ? 'Seeding…' : 'Seed ingredient library'}
       </Button>
       {status && (
         <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
@@ -313,7 +314,7 @@ export default function Ingestion() {
   const [tab, setTab] = useState<Tab>('seed')
 
   const tabs: { id: Tab; label: string }[] = [
-    { id: 'seed', label: 'Norwegian ingredients' },
+    { id: 'seed', label: 'Ingredient library' },
     { id: 'import', label: 'JSON Import' },
     { id: 'export', label: 'Export' },
   ]

@@ -1,6 +1,6 @@
 import { db } from '../db/db'
 import type { Recipe, Ingredient } from '../db/types'
-import { SIMILARITY_WEIGHTS } from '../data/norwegianIngredients'
+import { SIMILARITY_WEIGHTS } from '../data/ingredientLibrary'
 
 export interface RecommendationResult {
   recipe: Recipe

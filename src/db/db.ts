@@ -24,9 +24,9 @@ class MealPlannerDB extends Dexie {
 
   constructor() {
     super('MealPlannerDB')
-    this.version(1).stores({
+    this.version(2).stores({
       recipes: '++recipe_id, title, status, *tags',
-      ingredients: '++ingredient_id, canonical_name, normalized_name, ingredient_family, category',
+      ingredients: '++ingredient_id, canonical_name, normalized_name, ingredient_family, category, miskg_id',
       recipeIngredients: '++recipe_ingredient_id, recipe_id, ingredient_id',
       recipeNutrition: 'recipe_id',
       recipeCosts: 'recipe_id',

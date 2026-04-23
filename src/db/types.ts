@@ -29,6 +29,7 @@ export interface Ingredient {
   ingredient_family?: string
   category?: string
   default_unit?: string
+  miskg_id?: string          // MISKG processed ingredient ID — links to edamam/flavor/substitution data
   cost_reference_unit?: string
   nutrition_reference_unit?: string
 }
