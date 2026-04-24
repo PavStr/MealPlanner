@@ -36,6 +36,13 @@ function isNumberArray(value: unknown): value is number[] {
   return Array.isArray(value) && value.every(isFiniteNumber)
 }
 
+function isRecommendationResult(value: unknown): value is RecommendationResult {
+  if (!value || typeof value !== 'object') return false
+
+  const recipeId = (value as RecommendationResult).recipe?.recipe_id
+  return isFiniteNumber(recipeId)
+}
+
 function hasUsableDraft(draft: PlanDraft | null): draft is PlanDraft {
   return Boolean(draft && draft.anchorIds.length > 0)
 }
@@ -51,7 +58,7 @@ function parseStoredDraft(value: unknown): PlanDraft | null {
     targetServings: isFiniteNumber(record.targetServings) ? record.targetServings : 2,
     anchorIds: record.anchorIds,
     recommendations: Array.isArray(record.recommendations)
-      ? (record.recommendations as RecommendationResult[])
+      ? record.recommendations.filter(isRecommendationResult)
       : [],
     includedIds: isNumberArray(record.includedIds) ? record.includedIds : [],
     ran: Boolean(record.ran),

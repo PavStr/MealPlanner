@@ -365,55 +365,60 @@ export default function PlanSummary() {
     [currentPlanRecipes],
   )
 
-  const [recipes, setRecipes] = useState<Map<number, Recipe>>(new Map())
-  const [shoppingList, setShoppingList] = useState<ShoppingList>({ byCategory: {}, categories: [] })
-  const [prepTasks, setPrepTasks] = useState<PrepTask[]>([])
-  const [consolidations, setConsolidations] = useState<ConsolidationSuggestion[]>([])
-  const [loadError, setLoadError] = useState('')
-  const [tab, setTab] = useState<'overview' | 'shopping' | 'prep'>('overview')
-
   const dataSourceKey = viewingDraft
     ? `draft-${draft?.updatedAt ?? 0}`
     : `saved-${activeSavedPlanId ?? 'none'}`
   const recipeIdsKey = currentRecipeIds.join('|')
   const includedIdsKey = includedRecipeIds.join('|')
 
+  const recipeRows = useLiveQuery(
+    () => currentRecipeIds.length > 0
+      ? db.recipes.bulkGet(currentRecipeIds)
+      : Promise.resolve([] as (Recipe | undefined)[]),
+    [dataSourceKey, recipeIdsKey],
+  )
+
+  const recipes = useMemo(() => {
+    const recipeMap = new Map<number, Recipe>()
+    ;(recipeRows ?? []).forEach(recipe => {
+      if (recipe?.recipe_id) recipeMap.set(recipe.recipe_id, recipe)
+    })
+    return recipeMap
+  }, [recipeRows])
+
+  const [shoppingList, setShoppingList] = useState<ShoppingList>({ byCategory: {}, categories: [] })
+  const [prepTasks, setPrepTasks] = useState<PrepTask[]>([])
+  const [consolidations, setConsolidations] = useState<ConsolidationSuggestion[]>([])
+  const [loadError, setLoadError] = useState('')
+  const [derivedLoading, setDerivedLoading] = useState(false)
+  const [tab, setTab] = useState<'overview' | 'shopping' | 'prep'>('overview')
+
   useEffect(() => {
     let cancelled = false
 
     if (currentRecipeIds.length === 0) {
-      setRecipes(new Map())
       setShoppingList({ byCategory: {}, categories: [] })
       setPrepTasks([])
       setConsolidations([])
       setLoadError('')
+      setDerivedLoading(false)
       return
     }
 
     setLoadError('')
+    setDerivedLoading(true)
 
     Promise.allSettled([
-      db.recipes.bulkGet(currentRecipeIds),
       generateShoppingList(includedRecipeIds),
       generatePrepPlan(includedRecipeIds),
       generateConsolidationSuggestions(includedRecipeIds),
-    ]).then(([recipesResult, listResult, tasksResult, swapsResult]) => {
+    ]).then(([listResult, tasksResult, swapsResult]) => {
       if (cancelled) return
-
-      if (recipesResult.status === 'fulfilled') {
-        const recipeMap = new Map<number, Recipe>()
-        recipesResult.value.forEach(recipe => {
-          if (recipe?.recipe_id) recipeMap.set(recipe.recipe_id, recipe)
-        })
-        setRecipes(recipeMap)
-      } else {
-        setRecipes(new Map())
-        setLoadError(`Could not load recipes: ${recipesResult.reason}`)
-      }
 
       setShoppingList(listResult.status === 'fulfilled' ? listResult.value : { byCategory: {}, categories: [] })
       setPrepTasks(tasksResult.status === 'fulfilled' ? tasksResult.value : [])
       setConsolidations(swapsResult.status === 'fulfilled' ? swapsResult.value : [])
+      setDerivedLoading(false)
     })
 
     return () => {
@@ -545,6 +550,12 @@ export default function PlanSummary() {
                 <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md p-3">{loadError}</p>
               )}
 
+              {currentRecipeIds.length > 0 && recipes.size === 0 && (
+                <p className="text-sm text-gray-500 bg-white border border-gray-200 rounded-md p-3">
+                  Loading plan details...
+                </p>
+              )}
+
               <div className="flex border-b border-gray-200 gap-0">
                 {(['overview', 'shopping', 'prep'] as const).map(currentTab => (
                   <button
@@ -620,12 +631,26 @@ export default function PlanSummary() {
 
               {tab === 'shopping' && (
                 <>
+                  {derivedLoading && (
+                    <p className="text-sm text-gray-500 bg-white border border-gray-200 rounded-md p-3">
+                      Building shopping list...
+                    </p>
+                  )}
                   <ConsolidationPanel suggestions={consolidations} />
                   <ShoppingListSection list={shoppingList} />
                 </>
               )}
 
-              {tab === 'prep' && <PrepPlanSection tasks={prepTasks} />}
+              {tab === 'prep' && (
+                <>
+                  {derivedLoading && (
+                    <p className="text-sm text-gray-500 bg-white border border-gray-200 rounded-md p-3">
+                      Building prep plan...
+                    </p>
+                  )}
+                  <PrepPlanSection tasks={prepTasks} />
+                </>
+              )}
             </div>
           )}
         </div>
