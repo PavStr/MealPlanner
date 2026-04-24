@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate } from 'react-router-dom'
 import { db } from '../db/db'
@@ -6,6 +6,7 @@ import type { Recipe } from '../db/types'
 import { getRecommendations, type RecommendationResult } from '../engine/recommender'
 import Badge from '../components/ui/Badge'
 import Button from '../components/ui/Button'
+import { usePlanDraft } from '../state/planDraft'
 
 const MAX_ANCHORS = 4
 
@@ -90,20 +91,44 @@ function RecommendationCard({ result, rank, included, onToggle }: Recommendation
 
 export default function PlanBuilder() {
   const navigate = useNavigate()
+  const { draft, setDraft, clearDraft } = usePlanDraft()
   const [search, setSearch] = useState('')
-  const [anchorIds, setAnchorIds] = useState<number[]>([])
-  const [targetMeals, setTargetMeals] = useState(4)
-  const [targetServings, setTargetServings] = useState(2)
-  const [recommendations, setRecommendations] = useState<RecommendationResult[]>([])
-  const [includedIds, setIncludedIds] = useState<Set<number>>(new Set())
+  const [anchorIds, setAnchorIds] = useState<number[]>(() => draft?.anchorIds ?? [])
+  const [targetMeals, setTargetMeals] = useState(() => draft?.targetMeals ?? 4)
+  const [targetServings, setTargetServings] = useState(() => draft?.targetServings ?? 2)
+  const [recommendations, setRecommendations] = useState<RecommendationResult[]>(() => draft?.recommendations ?? [])
+  const [includedIds, setIncludedIds] = useState<Set<number>>(() => new Set(draft?.includedIds ?? []))
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [ran, setRan] = useState(false)
+  const [ran, setRan] = useState(() => draft?.ran ?? false)
 
   const activeRecipes = useLiveQuery(
     () => db.recipes.where('status').equals('active').sortBy('title'),
     [],
   )
+
+  useEffect(() => {
+    if (anchorIds.length === 0) {
+      clearDraft()
+      return
+    }
+
+    const recommendationIds = new Set(
+      recommendations
+        .map(result => result.recipe.recipe_id)
+        .filter((recipeId): recipeId is number => recipeId != null),
+    )
+
+    setDraft({
+      targetMeals,
+      targetServings,
+      anchorIds,
+      recommendations: recommendations.filter(result => result.recipe.recipe_id != null),
+      includedIds: Array.from(includedIds).filter(id => recommendationIds.has(id)),
+      ran,
+      updatedAt: Date.now(),
+    })
+  }, [anchorIds, targetMeals, targetServings, recommendations, includedIds, ran, setDraft, clearDraft])
 
   const filtered = (activeRecipes ?? []).filter(r =>
     r.title.toLowerCase().includes(search.toLowerCase()),
@@ -167,6 +192,7 @@ export default function PlanBuilder() {
         const role = includedIds.has(res.recipe.recipe_id) ? 'final' : 'suggested'
         await db.weeklyPlanRecipes.add({ plan_id: planId, recipe_id: res.recipe.recipe_id, role, rank: rank++ })
       }
+      clearDraft()
       navigate(`/summary/${planId}`)
     } finally {
       setSaving(false)

@@ -1,8 +1,14 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo, type ReactNode } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useParams, useNavigate } from 'react-router-dom'
 import { db } from '../db/db'
-import type { Recipe, RecipeNutrition, WeeklyPlan } from '../db/types'
+import type {
+  PlanRecipeRole,
+  Recipe,
+  RecipeNutrition,
+  WeeklyPlan,
+  WeeklyPlanRecipe,
+} from '../db/types'
 import {
   generateShoppingList,
   generatePrepPlan,
@@ -13,14 +19,24 @@ import {
 } from '../engine/shoppingList'
 import Badge from '../components/ui/Badge'
 import Button from '../components/ui/Button'
+import { usePlanDraft, type PlanDraft } from '../state/planDraft'
 
-interface PlanCardProps {
-  plan: WeeklyPlan
-  active: boolean
-  onClick: () => void
+interface SummaryPlanRecipe {
+  key: string
+  recipe_id: number
+  role: PlanRecipeRole
+  rank?: number
 }
 
-function PlanCard({ plan, active, onClick }: PlanCardProps) {
+interface PlanCardProps {
+  title: string
+  subtitle: string
+  active: boolean
+  onClick: () => void
+  badge?: ReactNode
+}
+
+function PlanCard({ title, subtitle, active, onClick, badge }: PlanCardProps) {
   return (
     <button
       onClick={onClick}
@@ -30,12 +46,45 @@ function PlanCard({ plan, active, onClick }: PlanCardProps) {
           : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'
       }`}
     >
-      <p className="font-medium">{plan.name ?? `Plan ${plan.plan_id}`}</p>
-      <p className="text-xs text-gray-400 mt-0.5">
-        {plan.target_meals} meals · {plan.target_servings} servings · {new Date(plan.created_at).toLocaleDateString()}
-      </p>
+      <div className="flex items-center gap-2">
+        <p className="font-medium">{title}</p>
+        {badge}
+      </div>
+      <p className="text-xs text-gray-400 mt-0.5">{subtitle}</p>
     </button>
   )
+}
+
+function formatSavedPlanSubtitle(plan: WeeklyPlan) {
+  return `${plan.target_meals} meals · ${plan.target_servings} servings · ${new Date(plan.created_at).toLocaleDateString()}`
+}
+
+function formatDraftPlanSubtitle(draft: PlanDraft) {
+  return `${draft.targetMeals} meals · ${draft.targetServings} servings · Updated ${new Date(draft.updatedAt).toLocaleString()}`
+}
+
+function buildDraftPlanRecipes(draft: PlanDraft | null): SummaryPlanRecipe[] {
+  if (!draft || draft.anchorIds.length === 0) return []
+
+  const planRecipes: SummaryPlanRecipe[] = draft.anchorIds.map(recipeId => ({
+    key: `draft-anchor-${recipeId}`,
+    recipe_id: recipeId,
+    role: 'anchor',
+  }))
+
+  draft.recommendations.forEach((result, index) => {
+    const recipeId = result.recipe.recipe_id
+    if (recipeId == null) return
+
+    planRecipes.push({
+      key: `draft-rec-${recipeId}`,
+      recipe_id: recipeId,
+      role: draft.includedIds.includes(recipeId) ? 'final' : 'suggested',
+      rank: index + 1,
+    })
+  })
+
+  return planRecipes
 }
 
 function ShoppingListSection({ list }: { list: ShoppingList }) {
@@ -266,15 +315,54 @@ function NutritionSummarySection({
 export default function PlanSummary() {
   const { planId: planIdParam } = useParams()
   const navigate = useNavigate()
+  const { draft } = usePlanDraft()
 
   const plans = useLiveQuery(() => db.weeklyPlans.orderBy('created_at').reverse().toArray(), [])
-  const [activePlanId, setActivePlanId] = useState<number | null>(null)
+  const parsedPlanId = planIdParam ? Number.parseInt(planIdParam, 10) : null
+  const requestedPlanId = parsedPlanId != null && Number.isFinite(parsedPlanId)
+    ? parsedPlanId
+    : null
+  const hasDraft = Boolean(draft && draft.anchorIds.length > 0)
+  const viewingDraft = requestedPlanId == null && hasDraft
+  const activeSavedPlanId = requestedPlanId ?? (!hasDraft ? plans?.[0]?.plan_id ?? null : null)
 
-  const planRecipes = useLiveQuery(
-    () => activePlanId != null
-      ? db.weeklyPlanRecipes.where('plan_id').equals(activePlanId).toArray()
-      : Promise.resolve([] as { plan_recipe_id?: number; plan_id: number; recipe_id: number; role: 'anchor' | 'suggested' | 'final'; rank?: number }[]),
-    [activePlanId],
+  const savedPlanRecipeRows = useLiveQuery(
+    () => activeSavedPlanId != null
+      ? db.weeklyPlanRecipes.where('plan_id').equals(activeSavedPlanId).toArray()
+      : Promise.resolve([] as WeeklyPlanRecipe[]),
+    [activeSavedPlanId],
+  )
+
+  const savedPlanRecipes = useMemo<SummaryPlanRecipe[]>(
+    () => (savedPlanRecipeRows ?? []).map(planRecipe => ({
+      key: `saved-${planRecipe.plan_recipe_id ?? `${planRecipe.role}-${planRecipe.recipe_id}-${planRecipe.rank ?? 0}`}`,
+      recipe_id: planRecipe.recipe_id,
+      role: planRecipe.role,
+      rank: planRecipe.rank,
+    })),
+    [savedPlanRecipeRows],
+  )
+
+  const draftPlanRecipes = useMemo(
+    () => buildDraftPlanRecipes(draft),
+    [draft],
+  )
+
+  const currentPlanRecipes = useMemo(
+    () => viewingDraft ? draftPlanRecipes : savedPlanRecipes,
+    [viewingDraft, draftPlanRecipes, savedPlanRecipes],
+  )
+
+  const currentRecipeIds = useMemo(
+    () => currentPlanRecipes.map(planRecipe => planRecipe.recipe_id),
+    [currentPlanRecipes],
+  )
+
+  const includedRecipeIds = useMemo(
+    () => currentPlanRecipes
+      .filter(planRecipe => planRecipe.role === 'anchor' || planRecipe.role === 'final')
+      .map(planRecipe => planRecipe.recipe_id),
+    [currentPlanRecipes],
   )
 
   const [recipes, setRecipes] = useState<Map<number, Recipe>>(new Map())
@@ -284,16 +372,16 @@ export default function PlanSummary() {
   const [loadError, setLoadError] = useState('')
   const [tab, setTab] = useState<'overview' | 'shopping' | 'prep'>('overview')
 
-  useEffect(() => {
-    if (planIdParam) {
-      setActivePlanId(parseInt(planIdParam))
-    } else if (plans && plans.length > 0 && activePlanId === null) {
-      setActivePlanId(plans[0].plan_id!)
-    }
-  }, [planIdParam, plans, activePlanId])
+  const dataSourceKey = viewingDraft
+    ? `draft-${draft?.updatedAt ?? 0}`
+    : `saved-${activeSavedPlanId ?? 'none'}`
+  const recipeIdsKey = currentRecipeIds.join('|')
+  const includedIdsKey = includedRecipeIds.join('|')
 
   useEffect(() => {
-    if (!planRecipes || planRecipes.length === 0) {
+    let cancelled = false
+
+    if (currentRecipeIds.length === 0) {
       setRecipes(new Map())
       setShoppingList({ byCategory: {}, categories: [] })
       setPrepTasks([])
@@ -302,17 +390,16 @@ export default function PlanSummary() {
       return
     }
 
-    const recipeIds = planRecipes.map(planRecipe => planRecipe.recipe_id)
-    const includedIds = planRecipes
-      .filter(planRecipe => planRecipe.role === 'anchor' || planRecipe.role === 'final')
-      .map(planRecipe => planRecipe.recipe_id)
+    setLoadError('')
 
     Promise.allSettled([
-      db.recipes.bulkGet(recipeIds),
-      generateShoppingList(includedIds),
-      generatePrepPlan(includedIds),
-      generateConsolidationSuggestions(includedIds),
+      db.recipes.bulkGet(currentRecipeIds),
+      generateShoppingList(includedRecipeIds),
+      generatePrepPlan(includedRecipeIds),
+      generateConsolidationSuggestions(includedRecipeIds),
     ]).then(([recipesResult, listResult, tasksResult, swapsResult]) => {
+      if (cancelled) return
+
       if (recipesResult.status === 'fulfilled') {
         const recipeMap = new Map<number, Recipe>()
         recipesResult.value.forEach(recipe => {
@@ -320,40 +407,48 @@ export default function PlanSummary() {
         })
         setRecipes(recipeMap)
       } else {
+        setRecipes(new Map())
         setLoadError(`Could not load recipes: ${recipesResult.reason}`)
       }
-      if (listResult.status === 'fulfilled') setShoppingList(listResult.value)
-      if (tasksResult.status === 'fulfilled') setPrepTasks(tasksResult.value)
-      if (swapsResult.status === 'fulfilled') setConsolidations(swapsResult.value)
+
+      setShoppingList(listResult.status === 'fulfilled' ? listResult.value : { byCategory: {}, categories: [] })
+      setPrepTasks(tasksResult.status === 'fulfilled' ? tasksResult.value : [])
+      setConsolidations(swapsResult.status === 'fulfilled' ? swapsResult.value : [])
     })
-  }, [planRecipes])
 
-  const activePlan = plans?.find(plan => plan.plan_id === activePlanId)
-  const anchorRecipes = (planRecipes ?? []).filter(planRecipe => planRecipe.role === 'anchor')
-  const finalRecipes = (planRecipes ?? []).filter(planRecipe => planRecipe.role === 'final')
-  const suggestedOnly = (planRecipes ?? []).filter(planRecipe => planRecipe.role === 'suggested')
-
-  const includedRecipeIds = (planRecipes ?? [])
-    .filter(planRecipe => planRecipe.role === 'anchor' || planRecipe.role === 'final')
-    .map(planRecipe => planRecipe.recipe_id)
+    return () => {
+      cancelled = true
+    }
+  }, [dataSourceKey, recipeIdsKey, includedIdsKey, currentRecipeIds, includedRecipeIds])
 
   const nutritionRows = useLiveQuery(
     () => includedRecipeIds.length > 0
       ? db.recipeNutrition.bulkGet(includedRecipeIds)
       : Promise.resolve([] as (RecipeNutrition | undefined)[]),
-    [includedRecipeIds.join('|')],
+    [dataSourceKey, includedIdsKey],
   )
+
+  const activePlan = activeSavedPlanId != null
+    ? plans?.find(plan => plan.plan_id === activeSavedPlanId)
+    : undefined
+
+  const anchorRecipes = currentPlanRecipes.filter(planRecipe => planRecipe.role === 'anchor')
+  const finalRecipes = currentPlanRecipes.filter(planRecipe => planRecipe.role === 'final')
+  const suggestedOnly = currentPlanRecipes.filter(planRecipe => planRecipe.role === 'suggested')
 
   const includedRecipes = includedRecipeIds
     .map(recipeId => recipes.get(recipeId))
     .filter((recipe): recipe is Recipe => Boolean(recipe))
 
-  async function deletePlan() {
-    if (activePlanId == null) return
+  const showingSavedPlan = !viewingDraft && Boolean(activePlan)
+  const missingSavedPlan = requestedPlanId != null && !viewingDraft && plans !== undefined && !activePlan
+  const hasVisiblePlan = viewingDraft || showingSavedPlan
 
-    await db.weeklyPlanRecipes.where('plan_id').equals(activePlanId).delete()
-    await db.weeklyPlans.delete(activePlanId)
-    setActivePlanId(null)
+  async function deletePlan() {
+    if (activeSavedPlanId == null) return
+
+    await db.weeklyPlanRecipes.where('plan_id').equals(activeSavedPlanId).delete()
+    await db.weeklyPlans.delete(activeSavedPlanId)
     navigate('/summary')
   }
 
@@ -365,25 +460,45 @@ export default function PlanSummary() {
       </div>
 
       <div className="flex-1 flex overflow-hidden">
-        <div className="w-60 shrink-0 border-r border-gray-200 bg-white flex flex-col">
+        <div className="w-72 shrink-0 border-r border-gray-200 bg-white flex flex-col">
           <div className="p-3 border-b border-gray-200">
-            <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Saved Plans</p>
+            <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Plans</p>
           </div>
-          <div className="flex-1 overflow-auto p-2 space-y-1">
+          <div className="flex-1 overflow-auto p-2 space-y-2">
+            {viewingDraft && draft && (
+              <PlanCard
+                title="Current Draft"
+                subtitle={formatDraftPlanSubtitle(draft)}
+                active
+                onClick={() => navigate('/summary')}
+                badge={<Badge color="yellow">Live</Badge>}
+              />
+            )}
+
+            {!viewingDraft && draft && (
+              <PlanCard
+                title="Current Draft"
+                subtitle={formatDraftPlanSubtitle(draft)}
+                active={false}
+                onClick={() => navigate('/summary')}
+                badge={<Badge color="yellow">Live</Badge>}
+              />
+            )}
+
             {plans === undefined ? (
               <p className="text-sm text-gray-500 p-2">Loading...</p>
             ) : plans.length === 0 ? (
-              <p className="text-sm text-gray-400 p-2">No saved plans yet. Build one in Plan Builder.</p>
+              <p className="text-sm text-gray-400 p-2">
+                {draft ? 'No saved plans yet.' : 'No saved plans yet. Build one in Plan Builder.'}
+              </p>
             ) : (
               plans.map(plan => (
                 <PlanCard
                   key={plan.plan_id}
-                  plan={plan}
-                  active={plan.plan_id === activePlanId}
-                  onClick={() => {
-                    setActivePlanId(plan.plan_id!)
-                    navigate(`/summary/${plan.plan_id}`)
-                  }}
+                  title={plan.name ?? `Plan ${plan.plan_id}`}
+                  subtitle={formatSavedPlanSubtitle(plan)}
+                  active={!viewingDraft && plan.plan_id === activeSavedPlanId}
+                  onClick={() => navigate(`/summary/${plan.plan_id}`)}
                 />
               ))
             )}
@@ -391,20 +506,39 @@ export default function PlanSummary() {
         </div>
 
         <div className="flex-1 overflow-auto p-6">
-          {!activePlan ? (
+          {!hasVisiblePlan ? (
             <div className="flex items-center justify-center h-full text-gray-400">
-              <p className="text-sm">Select a plan from the list, or create one in Plan Builder.</p>
+              <p className="text-sm">
+                {missingSavedPlan
+                  ? 'That saved plan could not be found.'
+                  : 'Select a saved plan, or create one in Plan Builder to preview it here.'}
+              </p>
             </div>
           ) : (
             <div className="space-y-5 max-w-4xl">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <h3 className="text-lg font-semibold text-gray-900">{activePlan.name ?? `Plan ${activePlan.plan_id}`}</h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-lg font-semibold text-gray-900">
+                      {viewingDraft
+                        ? 'Current Draft'
+                        : activePlan?.name ?? `Plan ${activeSavedPlanId}`}
+                    </h3>
+                    <Badge color={viewingDraft ? 'yellow' : 'blue'}>
+                      {viewingDraft ? 'Unsaved' : 'Saved'}
+                    </Badge>
+                  </div>
                   <p className="text-sm text-gray-500 mt-0.5">
-                    {activePlan.target_meals} meals · {activePlan.target_servings} servings · {new Date(activePlan.created_at).toLocaleDateString()}
+                    {viewingDraft && draft
+                      ? `${draft.targetMeals} meals · ${draft.targetServings} servings · Last updated ${new Date(draft.updatedAt).toLocaleString()}`
+                      : activePlan
+                      ? formatSavedPlanSubtitle(activePlan)
+                      : ''}
                   </p>
                 </div>
-                <Button variant="danger" size="sm" onClick={deletePlan}>Delete plan</Button>
+                {!viewingDraft && activePlan && (
+                  <Button variant="danger" size="sm" onClick={deletePlan}>Delete plan</Button>
+                )}
               </div>
 
               {loadError && (
@@ -435,7 +569,7 @@ export default function PlanSummary() {
                       {anchorRecipes.map(planRecipe => {
                         const recipe = recipes.get(planRecipe.recipe_id)
                         return recipe ? (
-                          <div key={planRecipe.plan_recipe_id} className="flex items-center gap-2 p-2.5 bg-white border border-gray-200 rounded-md">
+                          <div key={planRecipe.key} className="flex items-center gap-2 p-2.5 bg-white border border-gray-200 rounded-md">
                             <Badge color="blue">Anchor</Badge>
                             <span className="text-sm text-gray-800 font-medium">{recipe.title}</span>
                             <span className="text-xs text-gray-400 ml-auto">{recipe.default_servings} srv</span>
@@ -452,7 +586,7 @@ export default function PlanSummary() {
                         {finalRecipes.map(planRecipe => {
                           const recipe = recipes.get(planRecipe.recipe_id)
                           return recipe ? (
-                            <div key={planRecipe.plan_recipe_id} className="flex items-center gap-2 p-2.5 bg-white border border-gray-200 rounded-md">
+                            <div key={planRecipe.key} className="flex items-center gap-2 p-2.5 bg-white border border-gray-200 rounded-md">
                               <Badge color="green">Suggested</Badge>
                               <span className="text-sm text-gray-800 font-medium">{recipe.title}</span>
                               <span className="text-xs text-gray-400 ml-auto">{recipe.default_servings} srv</span>
@@ -470,7 +604,7 @@ export default function PlanSummary() {
                         {suggestedOnly.map(planRecipe => {
                           const recipe = recipes.get(planRecipe.recipe_id)
                           return recipe ? (
-                            <div key={planRecipe.plan_recipe_id} className="flex items-center gap-2 p-2.5 bg-gray-50 border border-gray-100 rounded-md opacity-60">
+                            <div key={planRecipe.key} className="flex items-center gap-2 p-2.5 bg-gray-50 border border-gray-100 rounded-md opacity-60">
                               <Badge>Skipped</Badge>
                               <span className="text-sm text-gray-600">{recipe.title}</span>
                             </div>
