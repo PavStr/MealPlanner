@@ -78,18 +78,26 @@ function loadDraftFromStorage(): PlanDraft | null {
   }
 }
 
-export function PlanDraftProvider({ children }: { children: ReactNode }) {
-  const [draft, setDraft] = useState<PlanDraft | null>(() => loadDraftFromStorage())
+function saveDraftToStorage(draft: PlanDraft | null) {
+  if (typeof window === 'undefined') return
 
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-
+  try {
     if (!hasUsableDraft(draft)) {
       window.sessionStorage.removeItem(STORAGE_KEY)
       return
     }
 
     window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(draft))
+  } catch (error) {
+    console.warn('Could not persist plan draft to session storage', error)
+  }
+}
+
+export function PlanDraftProvider({ children }: { children: ReactNode }) {
+  const [draft, setDraft] = useState<PlanDraft | null>(() => loadDraftFromStorage())
+
+  useEffect(() => {
+    saveDraftToStorage(draft)
   }, [draft])
 
   const value = useMemo<PlanDraftContextValue>(() => ({
