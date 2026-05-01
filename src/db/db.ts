@@ -43,6 +43,9 @@ class MealPlannerDB extends Dexie {
       miskgSubstitutions: 'miskg_id',
       miskgNutrition: 'miskg_id',
     })
+    this.version(4).stores({
+      weeklyPlans: '++plan_id, created_at',
+    })
   }
 }
 

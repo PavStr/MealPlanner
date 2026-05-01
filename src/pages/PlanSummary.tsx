@@ -87,6 +87,17 @@ function buildDraftPlanRecipes(draft: PlanDraft | null): SummaryPlanRecipe[] {
   return planRecipes
 }
 
+type SettledResult<T> =
+  | { status: 'fulfilled'; value: T }
+  | { status: 'rejected'; reason: unknown }
+
+function settle<T>(promise: Promise<T>): Promise<SettledResult<T>> {
+  return promise.then(
+    value => ({ status: 'fulfilled', value }),
+    reason => ({ status: 'rejected', reason }),
+  )
+}
+
 function ShoppingListSection({ list }: { list: ShoppingList }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
 
@@ -408,16 +419,21 @@ export default function PlanSummary() {
     setLoadError('')
     setDerivedLoading(true)
 
-    Promise.allSettled([
-      generateShoppingList(includedRecipeIds),
-      generatePrepPlan(includedRecipeIds),
-      generateConsolidationSuggestions(includedRecipeIds),
+    Promise.all([
+      settle(generateShoppingList(includedRecipeIds)),
+      settle(generatePrepPlan(includedRecipeIds)),
+      settle(generateConsolidationSuggestions(includedRecipeIds)),
     ]).then(([listResult, tasksResult, swapsResult]) => {
       if (cancelled) return
 
       setShoppingList(listResult.status === 'fulfilled' ? listResult.value : { byCategory: {}, categories: [] })
       setPrepTasks(tasksResult.status === 'fulfilled' ? tasksResult.value : [])
       setConsolidations(swapsResult.status === 'fulfilled' ? swapsResult.value : [])
+      setLoadError(
+        [listResult, tasksResult, swapsResult].some(result => result.status === 'rejected')
+          ? 'Some summary details could not be loaded. The recipe overview is still available.'
+          : '',
+      )
       setDerivedLoading(false)
     })
 
